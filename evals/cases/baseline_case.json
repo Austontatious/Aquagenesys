@@ -1,0 +1,20 @@
+{
+  "name": "v031-agent-fish-smoke",
+  "input": {
+    "seed": 101,
+    "width": 34,
+    "height": 22,
+    "initial_population": 10,
+    "max_population": 32,
+    "ticks": 18,
+    "deliberation_enabled": false
+  },
+  "expected": {
+    "schema": "aquagenesys.state.v3",
+    "frame_schema": "aquagenesys.frame.v1",
+    "max_frame_state_ratio": 0.55,
+    "min_population": 1,
+    "requires_decisions": true,
+    "model_calls": 0
+  }
+}

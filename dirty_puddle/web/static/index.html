@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aquagenesys</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070a0d;
+      --panel: #14191f;
+      --panel2: #10151b;
+      --line: #303942;
+      --text: #e5edf2;
+      --muted: #95a4ae;
+      --accent: #67d5b5;
+      --warn: #e7c65a;
+      --danger: #e56d6d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    main {
+      display: grid;
+      grid-template-columns: minmax(420px, 1fr) 360px;
+      min-height: 100vh;
+    }
+    #viewport {
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+      padding: 14px;
+      background: #070a0d;
+      min-width: 0;
+    }
+    canvas {
+      width: 100%;
+      height: calc(100vh - 28px);
+      image-rendering: pixelated;
+      background: #07100c;
+      border: 1px solid #233039;
+    }
+    aside {
+      border-left: 1px solid var(--line);
+      background: var(--panel);
+      padding: 14px;
+      overflow: auto;
+      max-height: 100vh;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .stat {
+      background: var(--panel2);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      min-height: 54px;
+    }
+    .stat span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .stat strong {
+      font-size: 17px;
+      font-weight: 700;
+    }
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    button, select {
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #1a2229;
+      color: var(--text);
+      font: inherit;
+      cursor: pointer;
+    }
+    button:hover, select:hover { border-color: #4b5965; }
+    .field {
+      display: grid;
+      grid-template-columns: 86px 1fr 54px;
+      gap: 8px;
+      align-items: center;
+      margin: 7px 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    input[type="range"] { width: 100%; }
+    .events {
+      margin-top: 14px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+    .event {
+      display: grid;
+      grid-template-columns: 58px 1fr;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .event strong { color: var(--text); font-weight: 600; }
+    @media (max-width: 860px) {
+      main { grid-template-columns: 1fr; }
+      aside { max-height: none; border-left: 0; border-top: 1px solid var(--line); }
+      canvas { height: min(72vh, 640px); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section id="viewport">
+      <canvas id="world"></canvas>
+    </section>
+    <aside>
+      <h1>Aquagenesys</h1>
+      <div class="stats" id="stats"></div>
+      <div class="toolbar">
+        <button id="pause">Pause</button>
+        <button id="step">Step</button>
+        <button id="reset">Reset</button>
+      </div>
+      <div class="toolbar">
+        <select id="field">
+          <option value="nutrient">Nutrient</option>
+          <option value="heat">Heat</option>
+          <option value="toxin">Toxin</option>
+        </select>
+        <select id="config"></select>
+        <button id="reload">Load</button>
+      </div>
+      <div id="controls"></div>
+      <div class="events" id="events"></div>
+    </aside>
+  </main>
+  <script>
+    const canvas = document.getElementById("world");
+    const ctx = canvas.getContext("2d");
+    const stats = document.getElementById("stats");
+    const controls = document.getElementById("controls");
+    const eventsEl = document.getElementById("events");
+    const configSelect = document.getElementById("config");
+    const fieldSelect = document.getElementById("field");
+    let current = null;
+    let controlBuilt = false;
+
+    function rgb(parts, alpha = 1) {
+      return `rgba(${parts[0]}, ${parts[1]}, ${parts[2]}, ${alpha})`;
+    }
+
+    function post(payload) {
+      return fetch("/api/control", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+      }).then(r => r.json()).then(update);
+    }
+
+    function valueText(value, step) {
+      if (step >= 1) return String(Math.round(value));
+      if (step < 0.01) return Number(value).toFixed(3);
+      return Number(value).toFixed(2);
+    }
+
+    function buildControls(data) {
+      controls.innerHTML = "";
+      for (const [key, spec] of Object.entries(data.controls)) {
+        const row = document.createElement("label");
+        row.className = "field";
+        const name = document.createElement("span");
+        name.textContent = spec.label;
+        const input = document.createElement("input");
+        input.type = "range";
+        input.min = spec.minimum;
+        input.max = spec.maximum;
+        input.step = spec.step;
+        input.value = spec.value;
+        const out = document.createElement("output");
+        out.textContent = valueText(spec.value, spec.step);
+        input.addEventListener("input", () => {
+          out.textContent = valueText(input.value, spec.step);
+        });
+        input.addEventListener("change", () => {
+          if (key === "speed") {
+            post({speed: Number(input.value)});
+          } else {
+            post({controls: {[key]: Number(input.value)}});
+          }
+        });
+        row.append(name, input, out);
+        controls.appendChild(row);
+      }
+      controlBuilt = true;
+    }
+
+    function update(data) {
+      current = data;
+      fieldSelect.value = data.field_mode;
+      document.getElementById("pause").textContent = data.paused ? "Resume" : "Pause";
+      if (!controlBuilt) buildControls(data);
+      draw(data);
+      renderStats(data);
+      renderEvents(data.events || []);
+    }
+
+    function renderStats(data) {
+      const snap = data.snapshot || {};
+      const aq = snap.aquatic_metrics || {};
+      const items = [
+        ["Tick", data.tick],
+        ["Stage", String(data.stage).replaceAll("_", " ")],
+        ["Cells", snap.population ?? data.cells.length],
+        ["Colonies", snap.colony_count ?? 0],
+        ["Organisms", snap.organism_count ?? data.organisms.length],
+        ["Aquatic", snap.aquatic_count ?? data.aquatics.length],
+        ["Support", Number(data.support).toFixed(2)],
+        ["Eff Mutation", Number(data.effective_mutation_rate).toFixed(3)],
+        ["Ticks/s", Math.round(data.performance.ticks_per_sec || 0)],
+        ["Predation", aq.predation_events ?? 0]
+      ];
+      stats.innerHTML = items.map(([k, v]) => `<div class="stat"><span>${k}</span><strong>${v}</strong></div>`).join("");
+    }
+
+    function renderEvents(events) {
+      const recent = events.slice(-18).reverse();
+      eventsEl.innerHTML = recent.map(ev => `<div class="event"><span>${ev.tick}</span><strong>${ev.kind}</strong></div>`).join("");
+    }
+
+    function fieldColor(mode, value) {
+      if (mode === "heat") return [54 + value * 150, 26 + value * 64, 34];
+      if (mode === "toxin") return [34, 42 + value * 118, 56 + value * 134];
+      return [10 + value * 36, 24 + value * 90, 32];
+    }
+
+    function draw(data) {
+      const width = data.width;
+      const height = data.height;
+      const box = canvas.getBoundingClientRect();
+      const scale = Math.max(2, Math.floor(Math.min(box.width / width, box.height / height)));
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      const field = data.fields[data.field_mode] || data.fields.nutrient;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          ctx.fillStyle = rgb(fieldColor(data.field_mode, field[y][x]));
+          ctx.fillRect(x * scale, y * scale, scale, scale);
+        }
+      }
+      for (const colony of data.colonies) {
+        const c = colony.centroid || [0, 0];
+        ctx.strokeStyle = "rgba(238,244,248,0.55)";
+        ctx.lineWidth = Math.max(1, scale * 0.18);
+        ctx.beginPath();
+        ctx.arc((c[0] + 0.5) * scale, (c[1] + 0.5) * scale, Math.max(scale * 2, Math.sqrt(colony.size) * scale), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      for (const cell of data.cells) {
+        ctx.fillStyle = rgb(cell.color);
+        ctx.fillRect(cell.x * scale + 1, cell.y * scale + 1, Math.max(2, scale - 2), Math.max(2, scale - 2));
+      }
+      for (const org of data.organisms) {
+        const r = Math.max(scale, Math.sqrt(org.body_size) * scale * 0.55);
+        ctx.fillStyle = "rgba(3,6,8,0.9)";
+        ctx.beginPath();
+        ctx.arc((org.x + 0.5) * scale, (org.y + 0.5) * scale, r + 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(235,242,246,0.92)";
+        ctx.beginPath();
+        ctx.arc((org.x + 0.5) * scale, (org.y + 0.5) * scale, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (const aq of data.aquatics) {
+        const r = Math.max(scale + 1, Math.sqrt(aq.body_size) * scale * 0.72);
+        const pos = aq.position || [aq.x, aq.y];
+        const vel = aq.velocity || [aq.vx, aq.vy];
+        ctx.fillStyle = "rgba(2,5,7,0.9)";
+        ctx.beginPath();
+        ctx.arc((pos[0] + 0.5) * scale, (pos[1] + 0.5) * scale, r + 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = rgb(aq.color_marker || [103, 213, 181]);
+        ctx.beginPath();
+        ctx.arc((pos[0] + 0.5) * scale, (pos[1] + 0.5) * scale, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = Math.max(1, scale * 0.22);
+        ctx.beginPath();
+        ctx.moveTo((pos[0] + 0.5) * scale, (pos[1] + 0.5) * scale);
+        ctx.lineTo((pos[0] + 0.5 + vel[0] * 1.5) * scale, (pos[1] + 0.5 + vel[1] * 1.5) * scale);
+        ctx.stroke();
+      }
+    }
+
+    document.getElementById("pause").addEventListener("click", () => post({action: "toggle_pause"}));
+    document.getElementById("step").addEventListener("click", () => post({action: "step", ticks: 1}));
+    document.getElementById("reset").addEventListener("click", () => { controlBuilt = false; post({action: "reset"}); });
+    document.getElementById("reload").addEventListener("click", () => { controlBuilt = false; post({action: "reset", config: configSelect.value}); });
+    fieldSelect.addEventListener("change", () => post({field_mode: fieldSelect.value}));
+
+    fetch("/api/configs").then(r => r.json()).then(data => {
+      configSelect.innerHTML = data.configs.map(name => `<option value="${name}">${name}</option>`).join("");
+      configSelect.value = data.active;
+    });
+
+    setInterval(() => fetch("/api/state").then(r => r.json()).then(update), 100);
+  </script>
+</body>
+</html>
