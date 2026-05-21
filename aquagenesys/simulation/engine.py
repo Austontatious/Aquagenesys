@@ -501,14 +501,17 @@ class AquagenesysSimulation:
     def _apply_action(self, fish: FishAgent, action: Action, perception: Perception, deaths: dict[int, str]) -> str:
         action = action.normalized()
         current_x, current_y = self.environment.current_at(fish.x, fish.y)
-        speed = fish.genome.max_speed * (0.48 + fish.health * 0.36 + max(0.0, 1.0 - fish.hunger) * 0.16)
+        thrust = 0.88 + fish.genome.tail_length * 0.20 - fish.genome.body_depth * 0.06
+        maneuver = 0.86 + fish.genome.fin_span * 0.18 + fish.genome.tail_length * 0.04
+        drag = 0.88 + fish.genome.body_depth * 0.11 + fish.genome.body_size * 0.05
+        speed = fish.genome.max_speed * thrust * (0.48 + fish.health * 0.36 + max(0.0, 1.0 - fish.hunger) * 0.16)
         intensity = action.intensity
         if action.kind == "rest":
             intensity *= 0.18
         if action.kind in {"flee", "escape"}:
             intensity *= 1.25
-        fish.vx = fish.vx * (0.54 + fish.genome.turning * 0.14) + action.dx * fish.genome.turning * intensity * 0.34 + current_x
-        fish.vy = fish.vy * (0.54 + fish.genome.turning * 0.14) + action.dy * fish.genome.turning * intensity * 0.34 + current_y
+        fish.vx = fish.vx * (0.54 + fish.genome.turning * 0.14) + action.dx * fish.genome.turning * maneuver * intensity * 0.34 + current_x
+        fish.vy = fish.vy * (0.54 + fish.genome.turning * 0.14) + action.dy * fish.genome.turning * maneuver * intensity * 0.34 + current_y
         magnitude = hypot(fish.vx, fish.vy)
         if magnitude > speed:
             fish.vx = fish.vx / magnitude * speed
@@ -519,7 +522,7 @@ class AquagenesysSimulation:
 
         moved = abs(fish.vx) + abs(fish.vy)
         basal = 0.070 + fish.genome.body_size * 0.025
-        fish.energy -= basal + moved * (0.11 + fish.genome.body_size * 0.020)
+        fish.energy -= basal + moved * (0.105 + fish.genome.body_size * 0.018) * drag
         fish.energy -= perception.stress * 0.10
         fish.health = clamp(fish.health - perception.stress * 0.006 + max(0.0, perception.sample["oxygen"] - fish.genome.oxygen_need) * 0.002)
         self.environment.consume("oxygen", fish.x, fish.y, 0.0015 + fish.genome.oxygen_need * 0.002)

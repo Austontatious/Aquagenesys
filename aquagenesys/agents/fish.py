@@ -18,6 +18,18 @@ def unit(dx: float, dy: float) -> tuple[float, float]:
     return (dx / magnitude, dy / magnitude)
 
 
+def mutate_hex_color(value: str, rng: Random, *, spread: int = 9) -> str:
+    raw = value.removeprefix("#")
+    if len(raw) != 6:
+        return value
+    try:
+        channels = [int(raw[index : index + 2], 16) for index in (0, 2, 4)]
+    except ValueError:
+        return value
+    shifted = [max(22, min(238, channel + int(rng.gauss(0, spread)))) for channel in channels]
+    return "#" + "".join(f"{channel:02x}" for channel in shifted)
+
+
 @dataclass(frozen=True)
 class FishGenome:
     archetype: str
@@ -42,6 +54,19 @@ class FishGenome:
     memory_span: int
     color: str
     accent_color: str
+    body_shape: str
+    tail_shape: str
+    fin_shape: str
+    pattern: str
+    body_depth: float
+    tail_length: float
+    fin_span: float
+    pattern_density: float
+    pattern_contrast: float
+    iridescence: float
+    camouflage: float
+    eye_scale: float
+    barbel_length: float
 
     @classmethod
     def founder(cls, rng: Random, *, lineage_id: int, archetype: str) -> "FishGenome":
@@ -66,6 +91,19 @@ class FishGenome:
                 "reproduction_rate": 0.58,
                 "sensory_range": 8.0,
                 "deliberation_chance": 0.10,
+                "body_shape": "leaf",
+                "tail_shape": "rounded",
+                "fin_shape": "broad",
+                "pattern": "speckled",
+                "body_depth": 0.72,
+                "tail_length": 0.55,
+                "fin_span": 0.78,
+                "pattern_density": 0.74,
+                "pattern_contrast": 0.42,
+                "iridescence": 0.18,
+                "camouflage": 0.76,
+                "eye_scale": 0.72,
+                "barbel_length": 0.65,
             },
             "glass_filter": {
                 "body_size": 0.56,
@@ -80,6 +118,19 @@ class FishGenome:
                 "reproduction_rate": 0.66,
                 "sensory_range": 9.5,
                 "deliberation_chance": 0.08,
+                "body_shape": "ribbon",
+                "tail_shape": "forked",
+                "fin_shape": "glass",
+                "pattern": "countershade",
+                "body_depth": 0.45,
+                "tail_length": 0.64,
+                "fin_span": 0.52,
+                "pattern_density": 0.25,
+                "pattern_contrast": 0.28,
+                "iridescence": 0.72,
+                "camouflage": 0.58,
+                "eye_scale": 0.62,
+                "barbel_length": 0.05,
             },
             "mud_stalker": {
                 "body_size": 0.95,
@@ -94,6 +145,19 @@ class FishGenome:
                 "reproduction_rate": 0.34,
                 "sensory_range": 11.0,
                 "deliberation_chance": 0.18,
+                "body_shape": "heavy",
+                "tail_shape": "spade",
+                "fin_shape": "spiked",
+                "pattern": "saddle",
+                "body_depth": 0.82,
+                "tail_length": 0.48,
+                "fin_span": 0.60,
+                "pattern_density": 0.46,
+                "pattern_contrast": 0.68,
+                "iridescence": 0.08,
+                "camouflage": 0.64,
+                "eye_scale": 0.88,
+                "barbel_length": 0.25,
             },
             "reed_sprinter": {
                 "body_size": 0.64,
@@ -108,6 +172,19 @@ class FishGenome:
                 "reproduction_rate": 0.46,
                 "sensory_range": 10.0,
                 "deliberation_chance": 0.14,
+                "body_shape": "torpedo",
+                "tail_shape": "lunate",
+                "fin_shape": "swept",
+                "pattern": "banded",
+                "body_depth": 0.54,
+                "tail_length": 0.82,
+                "fin_span": 0.46,
+                "pattern_density": 0.52,
+                "pattern_contrast": 0.62,
+                "iridescence": 0.34,
+                "camouflage": 0.42,
+                "eye_scale": 0.70,
+                "barbel_length": 0.10,
             },
         }[archetype]
         jitter = lambda value, spread=0.08: clamp(value + rng.uniform(-spread, spread), 0.02, 1.25)
@@ -135,6 +212,19 @@ class FishGenome:
             memory_span=rng.randint(10, 18),
             color=color,
             accent_color=accent,
+            body_shape=str(base["body_shape"]),
+            tail_shape=str(base["tail_shape"]),
+            fin_shape=str(base["fin_shape"]),
+            pattern=str(base["pattern"]),
+            body_depth=clamp(float(base["body_depth"]), 0.02, 1.25),
+            tail_length=clamp(float(base["tail_length"]), 0.02, 1.25),
+            fin_span=clamp(float(base["fin_span"]), 0.02, 1.25),
+            pattern_density=clamp(float(base["pattern_density"]), 0.02, 1.25),
+            pattern_contrast=clamp(float(base["pattern_contrast"]), 0.02, 1.25),
+            iridescence=clamp(float(base["iridescence"]), 0.02, 1.25),
+            camouflage=clamp(float(base["camouflage"]), 0.02, 1.25),
+            eye_scale=clamp(float(base["eye_scale"]), 0.02, 1.25),
+            barbel_length=clamp(float(base["barbel_length"]), 0.0, 1.25),
         )
 
     def mutated(self, rng: Random, *, lineage_id: int | None = None) -> "FishGenome":
@@ -144,6 +234,18 @@ class FishGenome:
         metabolism = self.metabolism
         if rng.random() < 0.025:
             metabolism = rng.choice(["grazer", "filter", "omnivore", "predator", "scavenger"])
+        body_shape = self.body_shape
+        tail_shape = self.tail_shape
+        fin_shape = self.fin_shape
+        pattern = self.pattern
+        if rng.random() < 0.020:
+            body_shape = rng.choice(["leaf", "ribbon", "heavy", "torpedo", "deep"])
+        if rng.random() < 0.020:
+            tail_shape = rng.choice(["rounded", "forked", "spade", "lunate", "fan"])
+        if rng.random() < 0.020:
+            fin_shape = rng.choice(["broad", "glass", "spiked", "swept", "short"])
+        if rng.random() < 0.030:
+            pattern = rng.choice(["speckled", "countershade", "saddle", "banded", "striped"])
         next_lineage = self.lineage_id if lineage_id is None else lineage_id
         return FishGenome(
             archetype=self.archetype if lineage_id is None else metabolism,
@@ -166,9 +268,59 @@ class FishGenome:
             sensory_range=max(3.0, self.sensory_range + rng.gauss(0.0, 0.8)),
             deliberation_chance=clamp(self.deliberation_chance + rng.gauss(0.0, 0.025), 0.02, 0.36),
             memory_span=max(6, min(24, self.memory_span + rng.choice([-1, 0, 1]))),
-            color=self.color,
-            accent_color=self.accent_color,
+            color=mutate_hex_color(self.color, rng, spread=7),
+            accent_color=mutate_hex_color(self.accent_color, rng, spread=6),
+            body_shape=body_shape,
+            tail_shape=tail_shape,
+            fin_shape=fin_shape,
+            pattern=pattern,
+            body_depth=m(self.body_depth, 0.045),
+            tail_length=m(self.tail_length, 0.045),
+            fin_span=m(self.fin_span, 0.045),
+            pattern_density=m(self.pattern_density, 0.055),
+            pattern_contrast=m(self.pattern_contrast, 0.055),
+            iridescence=m(self.iridescence, 0.040),
+            camouflage=m(self.camouflage, 0.045),
+            eye_scale=m(self.eye_scale, 0.040),
+            barbel_length=m(self.barbel_length, 0.055),
         )
+
+    def phenotype_payload(self, *, compact: bool = False) -> dict[str, Any]:
+        body_length = 1.22 + self.body_size * 0.52 + self.max_speed * 0.16
+        body_depth = 0.42 + self.body_depth * 0.54
+        tail_length = 0.44 + self.tail_length * 0.62
+        fin_span = 0.26 + self.fin_span * 0.72
+        stripe_count = max(2, min(9, int(round(2 + self.pattern_density * 5 + self.pattern_contrast * 2))))
+        spot_count = max(3, min(16, int(round(4 + self.pattern_density * 9 + self.camouflage * 2))))
+        payload = {
+            "shape": self.body_shape,
+            "pattern": self.pattern,
+            "tail": self.tail_shape,
+            "fins": self.fin_shape,
+            "body_length": round(body_length, 3),
+            "body_depth": round(body_depth, 3),
+            "tail_length": round(tail_length, 3),
+            "fin_span": round(fin_span, 3),
+            "stripe_count": stripe_count,
+            "spot_count": spot_count,
+            "pattern_density": round(self.pattern_density, 3),
+            "pattern_contrast": round(self.pattern_contrast, 3),
+            "iridescence": round(self.iridescence, 3),
+            "camouflage": round(self.camouflage, 3),
+            "eye_scale": round(self.eye_scale, 3),
+            "barbel_length": round(self.barbel_length, 3),
+            "primary_color": self.color,
+            "accent_color": self.accent_color,
+        }
+        if compact:
+            return payload
+        payload["mechanics"] = {
+            "thrust": round(0.88 + self.tail_length * 0.20 + self.max_speed * 0.08, 3),
+            "maneuver": round(0.84 + self.fin_span * 0.18 + self.turning * 0.08, 3),
+            "drag": round(0.82 + self.body_depth * 0.16 + self.body_size * 0.08, 3),
+            "visibility": round(0.72 + self.iridescence * 0.18 + self.pattern_contrast * 0.12 - self.camouflage * 0.20, 3),
+        }
+        return payload
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -194,6 +346,20 @@ class FishGenome:
             "memory_span": self.memory_span,
             "color": self.color,
             "accent_color": self.accent_color,
+            "body_shape": self.body_shape,
+            "tail_shape": self.tail_shape,
+            "fin_shape": self.fin_shape,
+            "pattern": self.pattern,
+            "body_depth": round(self.body_depth, 3),
+            "tail_length": round(self.tail_length, 3),
+            "fin_span": round(self.fin_span, 3),
+            "pattern_density": round(self.pattern_density, 3),
+            "pattern_contrast": round(self.pattern_contrast, 3),
+            "iridescence": round(self.iridescence, 3),
+            "camouflage": round(self.camouflage, 3),
+            "eye_scale": round(self.eye_scale, 3),
+            "barbel_length": round(self.barbel_length, 3),
+            "phenotype": self.phenotype_payload(),
         }
 
 
@@ -350,7 +516,7 @@ class FishAgent:
 
     @property
     def radius(self) -> float:
-        return max(1.6, 1.7 + self.genome.body_size * 2.2)
+        return max(1.6, 1.45 + self.genome.body_size * 2.0 + self.genome.body_depth * 0.52)
 
     @property
     def body_state(self) -> str:
@@ -493,6 +659,7 @@ class FishAgent:
             "recent_outcomes": list(self.recent_outcomes[-5:]),
             "memory": self.memory.payload(),
             "genome": self.genome.payload(),
+            "phenotype": self.genome.phenotype_payload(),
             "decision": self.last_decision.payload(),
             "active_intent": self.model_intent.payload() if self.model_intent else None,
             "last_model_decision": self.last_model_decision.payload() if self.last_model_decision else None,
@@ -531,6 +698,7 @@ class FishAgent:
                 "color": self.genome.color,
                 "accent_color": self.genome.accent_color,
             },
+            "phenotype": self.genome.phenotype_payload(compact=True),
             "decision": self.last_decision.payload(),
             "active_intent": self.model_intent.payload() if self.model_intent else None,
             "last_model_decision": self.last_model_decision.payload() if self.last_model_decision else None,

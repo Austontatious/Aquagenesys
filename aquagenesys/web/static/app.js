@@ -299,7 +299,11 @@ function drawFish(fishList, sx, sy) {
     const x = fish.renderX * sx;
     const y = fish.renderY * sy;
     const r = Math.max(3.4, fish.radius * Math.min(sx, sy));
-    renderedFish.push({ id: fish.id, x, y, r: r * 1.8, fish });
+    const phenotype = phenotypeFor(fish);
+    const bodyLength = r * phenotype.body_length;
+    const bodyDepth = r * phenotype.body_depth;
+    const tailLength = r * phenotype.tail_length;
+    renderedFish.push({ id: fish.id, x, y, r: Math.max(bodyLength + tailLength, bodyDepth) * 1.28, fish });
     const angle = Math.atan2(fish.vy, fish.vx || 0.001);
     const pulse = Math.sin((currentFrame.tick + fish.id * 7) * 0.18);
     const isHover = fish.id === hoverFishId;
@@ -309,34 +313,40 @@ function drawFish(fishList, sx, sy) {
     ctx.rotate(angle);
 
     const healthAlpha = 0.46 + fish.health * 0.46;
-    ctx.globalAlpha = healthAlpha;
-    ctx.strokeStyle = fish.genome.accent_color;
-    ctx.lineWidth = Math.max(1, r * 0.20);
-    ctx.beginPath();
-    ctx.moveTo(-r * 0.9, 0);
-    ctx.quadraticCurveTo(-r * (1.6 + fish.hunger * 0.25), pulse * r * 0.55, -r * 2.12, pulse * r * 0.18);
-    ctx.stroke();
+    drawTail(phenotype, bodyLength, bodyDepth, tailLength, pulse, healthAlpha);
+    drawFins(phenotype, bodyLength, bodyDepth, r, pulse, healthAlpha);
 
     ctx.globalAlpha = 1;
-    ctx.fillStyle = fish.genome.color;
+    ctx.fillStyle = phenotype.primary_color;
     ctx.strokeStyle = stateColor(fish.body_state);
     ctx.lineWidth = Math.max(1, r * 0.12);
-    ctx.beginPath();
-    ctx.ellipse(0, 0, r * (1.16 + fish.genome.body_size * 0.16), r * 0.72, 0, 0, Math.PI * 2);
+    bodyPath(phenotype, bodyLength, bodyDepth);
     ctx.fill();
     ctx.stroke();
+
+    ctx.save();
+    bodyPath(phenotype, bodyLength, bodyDepth);
+    ctx.clip();
+    drawCounterShade(phenotype, bodyLength, bodyDepth);
+    drawPattern(phenotype, fish.id, bodyLength, bodyDepth);
+    drawIridescence(phenotype, bodyLength, bodyDepth, pulse);
+    ctx.restore();
 
     ctx.fillStyle = "rgba(10, 15, 16, 0.74)";
     ctx.beginPath();
-    ctx.arc(r * 0.56, -r * 0.16, Math.max(1.1, r * 0.12), 0, Math.PI * 2);
+    ctx.arc(bodyLength * 0.37, -bodyDepth * 0.20, Math.max(1.1, r * 0.10 * phenotype.eye_scale), 0, Math.PI * 2);
     ctx.fill();
+
+    if (phenotype.barbel_length > 0.18) {
+      drawBarbels(phenotype, bodyLength, bodyDepth, r, pulse);
+    }
 
     if (fish.genome.metabolism === "predator") {
       ctx.fillStyle = "rgba(20, 8, 8, 0.75)";
       ctx.beginPath();
-      ctx.moveTo(r * 0.82, -r * 0.26);
-      ctx.lineTo(r * 1.22, 0);
-      ctx.lineTo(r * 0.82, r * 0.26);
+      ctx.moveTo(bodyLength * 0.42, -bodyDepth * 0.26);
+      ctx.lineTo(bodyLength * 0.60, 0);
+      ctx.lineTo(bodyLength * 0.42, bodyDepth * 0.26);
       ctx.closePath();
       ctx.fill();
     }
@@ -345,18 +355,213 @@ function drawFish(fishList, sx, sy) {
       ctx.strokeStyle = "rgba(255, 239, 150, 0.82)";
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(0, 0, r * 1.55, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, (bodyLength + tailLength) * 0.72, bodyDepth * 1.45, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
     if (isHover || isSelected) {
       ctx.strokeStyle = isSelected ? "rgba(255, 255, 255, 0.95)" : "rgba(123, 212, 176, 0.85)";
       ctx.lineWidth = isSelected ? 2 : 1;
       ctx.beginPath();
-      ctx.arc(0, 0, r * 1.95, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, (bodyLength + tailLength) * 0.80, bodyDepth * 1.72, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.restore();
   }
+}
+
+function phenotypeFor(fish) {
+  return {
+    shape: "torpedo",
+    pattern: "speckled",
+    tail: "rounded",
+    fins: "short",
+    body_length: 1.55,
+    body_depth: 0.72,
+    tail_length: 0.70,
+    fin_span: 0.60,
+    stripe_count: 4,
+    spot_count: 7,
+    pattern_density: 0.42,
+    pattern_contrast: 0.48,
+    iridescence: 0.18,
+    camouflage: 0.45,
+    eye_scale: 0.72,
+    barbel_length: 0.0,
+    primary_color: fish.genome?.color || "#9ecb8a",
+    accent_color: fish.genome?.accent_color || "#203c32",
+    ...(fish.phenotype || fish.genome?.phenotype || {}),
+  };
+}
+
+function bodyPath(phenotype, length, depth) {
+  ctx.beginPath();
+  if (phenotype.shape === "ribbon") {
+    ctx.moveTo(length * 0.52, 0);
+    ctx.bezierCurveTo(length * 0.22, -depth * 0.52, -length * 0.44, -depth * 0.34, -length * 0.56, 0);
+    ctx.bezierCurveTo(-length * 0.44, depth * 0.34, length * 0.22, depth * 0.52, length * 0.52, 0);
+  } else if (phenotype.shape === "heavy") {
+    ctx.moveTo(length * 0.55, 0);
+    ctx.bezierCurveTo(length * 0.20, -depth * 0.98, -length * 0.54, -depth * 0.82, -length * 0.64, 0);
+    ctx.bezierCurveTo(-length * 0.54, depth * 0.82, length * 0.20, depth * 0.98, length * 0.55, 0);
+  } else if (phenotype.shape === "leaf" || phenotype.shape === "deep") {
+    ctx.moveTo(length * 0.50, 0);
+    ctx.bezierCurveTo(length * 0.12, -depth * 0.88, -length * 0.52, -depth * 0.72, -length * 0.58, 0);
+    ctx.bezierCurveTo(-length * 0.52, depth * 0.72, length * 0.12, depth * 0.88, length * 0.50, 0);
+  } else {
+    ctx.moveTo(length * 0.58, 0);
+    ctx.bezierCurveTo(length * 0.20, -depth * 0.70, -length * 0.50, -depth * 0.54, -length * 0.62, 0);
+    ctx.bezierCurveTo(-length * 0.50, depth * 0.54, length * 0.20, depth * 0.70, length * 0.58, 0);
+  }
+  ctx.closePath();
+}
+
+function drawTail(phenotype, length, depth, tailLength, pulse, alpha) {
+  const root = -length * 0.56;
+  const tip = root - tailLength * (1.0 + Math.abs(pulse) * 0.05);
+  const spread = depth * (0.54 + phenotype.fin_span * 0.22);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = mixAlpha(phenotype.accent_color, 0.72);
+  ctx.strokeStyle = phenotype.accent_color;
+  ctx.lineWidth = Math.max(1, depth * 0.10);
+  ctx.beginPath();
+  if (phenotype.tail === "forked" || phenotype.tail === "lunate") {
+    ctx.moveTo(root, 0);
+    ctx.lineTo(tip, -spread);
+    ctx.lineTo(tip + tailLength * 0.34, 0);
+    ctx.lineTo(tip, spread);
+    ctx.closePath();
+  } else if (phenotype.tail === "spade" || phenotype.tail === "fan") {
+    ctx.moveTo(root, 0);
+    ctx.quadraticCurveTo(tip + tailLength * 0.22, -spread * 1.08, tip, 0);
+    ctx.quadraticCurveTo(tip + tailLength * 0.22, spread * 1.08, root, 0);
+  } else {
+    ctx.moveTo(root, 0);
+    ctx.quadraticCurveTo(tip + tailLength * 0.12, -spread * 0.86, tip, pulse * depth * 0.08);
+    ctx.quadraticCurveTo(tip + tailLength * 0.12, spread * 0.86, root, 0);
+  }
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawFins(phenotype, length, depth, r, pulse, alpha) {
+  const span = depth * phenotype.fin_span;
+  const swept = phenotype.fins === "swept" ? 0.36 : phenotype.fins === "spiked" ? -0.16 : 0.10;
+  ctx.save();
+  ctx.globalAlpha = Math.min(0.78, alpha * (phenotype.fins === "glass" ? 0.44 : 0.70));
+  ctx.fillStyle = mixAlpha(phenotype.accent_color, phenotype.fins === "glass" ? 0.28 : 0.48);
+  ctx.strokeStyle = phenotype.accent_color;
+  ctx.lineWidth = Math.max(1, r * 0.08);
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(-length * 0.04, side * depth * 0.18);
+    ctx.lineTo(-length * (0.18 + swept), side * (depth * 0.18 + span * (0.74 + pulse * 0.05)));
+    ctx.lineTo(length * 0.16, side * depth * 0.26);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.moveTo(-length * 0.12, -depth * 0.58);
+  ctx.lineTo(-length * 0.26, -depth * (0.58 + phenotype.fin_span * 0.44));
+  ctx.lineTo(length * 0.12, -depth * 0.54);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawCounterShade(phenotype, length, depth) {
+  ctx.fillStyle = "rgba(255, 255, 255, 0.11)";
+  ctx.beginPath();
+  ctx.ellipse(0, -depth * 0.24, length * 0.50, depth * 0.24, 0, Math.PI, Math.PI * 2);
+  ctx.fill();
+  if (phenotype.pattern === "countershade") {
+    ctx.fillStyle = "rgba(12, 28, 30, 0.18)";
+    ctx.fillRect(-length * 0.62, -depth, length * 1.2, depth * 0.92);
+  }
+}
+
+function drawPattern(phenotype, fishId, length, depth) {
+  const contrast = clamp(phenotype.pattern_contrast, 0, 1);
+  ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.20 + contrast * 0.58);
+  ctx.fillStyle = mixAlpha(phenotype.accent_color, 0.18 + contrast * 0.50);
+  ctx.lineWidth = Math.max(1, depth * (0.045 + contrast * 0.035));
+  if (phenotype.pattern === "striped" || phenotype.pattern === "banded") {
+    const count = phenotype.stripe_count || 5;
+    for (let i = 0; i < count; i += 1) {
+      const x = -length * 0.43 + (i / Math.max(1, count - 1)) * length * 0.78;
+      ctx.beginPath();
+      if (phenotype.pattern === "banded") {
+        ctx.moveTo(x, -depth * 0.66);
+        ctx.lineTo(x + length * 0.07, depth * 0.66);
+      } else {
+        ctx.moveTo(x, -depth * 0.54);
+        ctx.quadraticCurveTo(x + length * 0.04, 0, x - length * 0.02, depth * 0.54);
+      }
+      ctx.stroke();
+    }
+    return;
+  }
+  if (phenotype.pattern === "saddle") {
+    for (let i = 0; i < 3; i += 1) {
+      const x = -length * 0.32 + i * length * 0.28;
+      ctx.beginPath();
+      ctx.ellipse(x, -depth * 0.34, length * 0.12, depth * 0.26, -0.24, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return;
+  }
+  const count = phenotype.spot_count || 8;
+  for (let i = 0; i < count; i += 1) {
+    const t = (i + 1) / (count + 1);
+    const x = -length * 0.46 + t * length * 0.86;
+    const wave = Math.sin(fishId * 1.7 + i * 2.31);
+    const y = wave * depth * 0.36;
+    const size = depth * (0.055 + ((i + fishId) % 4) * 0.012);
+    ctx.beginPath();
+    ctx.arc(x, y, size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawIridescence(phenotype, length, depth, pulse) {
+  const shine = clamp(phenotype.iridescence, 0, 1);
+  if (shine <= 0.08) return;
+  ctx.strokeStyle = `rgba(210, 245, 255, ${0.08 + shine * 0.18})`;
+  ctx.lineWidth = Math.max(1, depth * 0.045);
+  ctx.beginPath();
+  ctx.moveTo(-length * 0.38, -depth * (0.18 + pulse * 0.02));
+  ctx.quadraticCurveTo(0, -depth * 0.42, length * 0.40, -depth * 0.18);
+  ctx.stroke();
+}
+
+function drawBarbels(phenotype, length, depth, r, pulse) {
+  const len = r * phenotype.barbel_length * 1.25;
+  ctx.save();
+  ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.74);
+  ctx.lineWidth = Math.max(1, r * 0.055);
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(length * 0.45, side * depth * 0.18);
+    ctx.quadraticCurveTo(length * 0.56, side * (depth * 0.26 + pulse * r * 0.06), length * 0.45 + len, side * depth * 0.50);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function mixAlpha(color, alpha) {
+  const rgb = hexToRgb(color);
+  if (!rgb) return `rgba(170, 210, 180, ${alpha})`;
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+}
+
+function hexToRgb(color) {
+  const raw = String(color || "").replace("#", "");
+  if (raw.length !== 6) return null;
+  const value = Number.parseInt(raw, 16);
+  if (Number.isNaN(value)) return null;
+  return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
 }
 
 function hitTestFish(x, y) {
@@ -388,6 +593,9 @@ function updateInspector() {
   document.getElementById("fishId").textContent = `#${fish.id} L${fish.lineage} G${fish.generation}`;
   document.getElementById("fishSpecies").textContent = `${fish.species_id} / ${fish.genome.archetype}`;
   document.getElementById("fishBody").textContent = `${fish.body_state} ${fish.genome.metabolism}`;
+  const phenotype = phenotypeFor(fish);
+  document.getElementById("fishPhenotype").textContent = `${phenotype.shape} / ${phenotype.tail} / ${phenotype.pattern}`;
+  document.getElementById("fishTraits").textContent = `fin ${Number(phenotype.fin_span).toFixed(2)} camo ${Number(phenotype.camouflage).toFixed(2)}`;
   document.getElementById("fishDecision").textContent = `${fish.decision.source}: ${fish.decision.kind}`;
   document.getElementById("fishIntent").textContent = fish.active_intent
     ? `${fish.active_intent.kind} ttl ${fish.model_intent_ttl}`

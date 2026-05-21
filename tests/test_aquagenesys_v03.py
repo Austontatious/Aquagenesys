@@ -206,7 +206,43 @@ def test_frame_state_is_compact_and_observable() -> None:
     assert "fields" not in frame["environment"]
     assert frame["fish"][0]["decision"]
     assert frame["fish"][0]["genome"]["archetype"]
+    assert frame["fish"][0]["phenotype"]["shape"]
+    assert frame["fish"][0]["phenotype"]["pattern"]
     assert len(json.dumps(frame)) < len(json.dumps(state)) * 0.55
+    sim.close()
+
+
+def test_procedural_phenotypes_are_distinct_and_mechanically_exposed() -> None:
+    sim = AquagenesysSimulation(
+        SimulationConfig(seed=61, width=34, height=22, initial_population=12, deliberation_enabled=False, archive_every_ticks=0)
+    )
+    state = sim.state()
+    phenotypes = [fish["phenotype"] for fish in state["fish"]]
+    signatures = {(item["shape"], item["tail"], item["fins"], item["pattern"]) for item in phenotypes}
+    assert len(signatures) >= 4
+    for fish in state["fish"][:6]:
+        phenotype = fish["phenotype"]
+        mechanics = phenotype["mechanics"]
+        assert phenotype["body_length"] > 1.0
+        assert phenotype["tail_length"] > 0.4
+        assert mechanics["thrust"] > 0.0
+        assert mechanics["maneuver"] > 0.0
+        assert mechanics["drag"] > 0.0
+    sim.close()
+
+
+def test_phenotype_survives_mutation_and_frame_contract() -> None:
+    sim = AquagenesysSimulation(
+        SimulationConfig(seed=67, width=34, height=22, initial_population=4, deliberation_enabled=False, archive_every_ticks=0)
+    )
+    parent = sim.fish[0]
+    child_genome = parent.genome.mutated(sim.rng)
+    child_payload = child_genome.payload()
+    frame = sim.frame_state()
+    assert child_payload["phenotype"]["shape"]
+    assert child_payload["phenotype"]["primary_color"].startswith("#")
+    assert "mechanics" not in frame["fish"][0]["phenotype"]
+    assert frame["fish"][0]["phenotype"]["accent_color"].startswith("#")
     sim.close()
 
 
