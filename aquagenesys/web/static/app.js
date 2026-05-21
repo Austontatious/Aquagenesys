@@ -10,6 +10,7 @@ const randomize = document.getElementById("randomize");
 const FRAME_POLL_MS = 320;
 const STATE_POLL_MS = 2600;
 const INTERPOLATION_DELAY_MS = 280;
+const TAU = Math.PI * 2;
 
 let latestState = null;
 let latestEnvironment = null;
@@ -276,8 +277,25 @@ function interpolatedFish(now) {
       x = fish.x + fish.vx * dtTicks;
       y = fish.y + fish.vy * dtTicks;
     }
-    return { ...fish, renderX: x, renderY: y };
+    return { ...fish, renderX: x, renderY: y, locomotion: interpolatedLocomotion(fish, prior, renderTime, frameDeltaMs) };
   });
+}
+
+function interpolatedLocomotion(fish, prior, renderTime, frameDeltaMs) {
+  const current = locomotionFor(fish);
+  if (!prior?.locomotion || !previousFrame) return current;
+  const previousMotion = locomotionFor(prior);
+  if (renderTime < previousFrame.receivedAt || renderTime > currentFrame.receivedAt) return current;
+  const alpha = clamp((renderTime - previousFrame.receivedAt) / frameDeltaMs, 0, 1);
+  return {
+    heading: interpolateAngle(previousMotion.heading, current.heading, alpha),
+    turn_rate: previousMotion.turn_rate + (current.turn_rate - previousMotion.turn_rate) * alpha,
+    swim_phase: unwrapPhase(previousMotion.swim_phase, current.swim_phase, alpha),
+    tail_beat: previousMotion.tail_beat + (current.tail_beat - previousMotion.tail_beat) * alpha,
+    body_wave: previousMotion.body_wave + (current.body_wave - previousMotion.body_wave) * alpha,
+    speed: previousMotion.speed + (current.speed - previousMotion.speed) * alpha,
+    stride: previousMotion.stride + (current.stride - previousMotion.stride) * alpha,
+  };
 }
 
 function drawShelters(centers, sx, sy) {
@@ -300,19 +318,22 @@ function drawFish(fishList, sx, sy) {
     const y = fish.renderY * sy;
     const r = Math.max(3.4, fish.radius * Math.min(sx, sy));
     const phenotype = phenotypeFor(fish);
+    const locomotion = locomotionFor(fish);
     const bodyLength = r * phenotype.body_length;
     const bodyDepth = r * phenotype.body_depth;
     const tailLength = r * phenotype.tail_length;
     renderedFish.push({ id: fish.id, x, y, r: Math.max(bodyLength + tailLength, bodyDepth) * 1.28, fish });
-    const angle = Math.atan2(fish.vy, fish.vx || 0.001);
-    const pulse = Math.sin((currentFrame.tick + fish.id * 7) * 0.18);
+    const angle = locomotion.heading;
+    const pulse = Math.sin(locomotion.swim_phase);
+    const bodyBend = pulse * (0.05 + locomotion.body_wave * 0.10);
     const isHover = fish.id === hoverFishId;
     const isSelected = fish.id === selectedFishId;
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(angle);
+    ctx.rotate(angle + pulse * locomotion.body_wave * 0.025);
 
     const healthAlpha = 0.46 + fish.health * 0.46;
+    drawWake(phenotype, locomotion, bodyLength, bodyDepth, tailLength);
     drawTail(phenotype, bodyLength, bodyDepth, tailLength, pulse, healthAlpha);
     drawFins(phenotype, bodyLength, bodyDepth, r, pulse, healthAlpha);
 
@@ -320,12 +341,12 @@ function drawFish(fishList, sx, sy) {
     ctx.fillStyle = phenotype.primary_color;
     ctx.strokeStyle = stateColor(fish.body_state);
     ctx.lineWidth = Math.max(1, r * 0.12);
-    bodyPath(phenotype, bodyLength, bodyDepth);
+    bodyPath(phenotype, bodyLength, bodyDepth, bodyBend);
     ctx.fill();
     ctx.stroke();
 
     ctx.save();
-    bodyPath(phenotype, bodyLength, bodyDepth);
+    bodyPath(phenotype, bodyLength, bodyDepth, bodyBend);
     ctx.clip();
     drawCounterShade(phenotype, bodyLength, bodyDepth);
     drawPattern(phenotype, fish.id, bodyLength, bodyDepth);
@@ -369,6 +390,20 @@ function drawFish(fishList, sx, sy) {
   }
 }
 
+function locomotionFor(fish) {
+  const fallbackHeading = Math.atan2(fish.vy || 0, fish.vx || 0.001);
+  return {
+    heading: fallbackHeading,
+    turn_rate: 0,
+    swim_phase: (currentFrame?.tick || 0) * 0.3 + fish.id,
+    tail_beat: Math.min(1, Math.hypot(fish.vx || 0, fish.vy || 0)),
+    body_wave: 0.2,
+    speed: Math.hypot(fish.vx || 0, fish.vy || 0),
+    stride: Math.hypot(fish.vx || 0, fish.vy || 0),
+    ...(fish.locomotion || {}),
+  };
+}
+
 function phenotypeFor(fish) {
   return {
     shape: "torpedo",
@@ -393,24 +428,27 @@ function phenotypeFor(fish) {
   };
 }
 
-function bodyPath(phenotype, length, depth) {
+function bodyPath(phenotype, length, depth, bend = 0) {
+  const tailY = -bend * depth * 0.68;
+  const midY = bend * depth * 0.30;
+  const noseY = -bend * depth * 0.16;
   ctx.beginPath();
   if (phenotype.shape === "ribbon") {
-    ctx.moveTo(length * 0.52, 0);
-    ctx.bezierCurveTo(length * 0.22, -depth * 0.52, -length * 0.44, -depth * 0.34, -length * 0.56, 0);
-    ctx.bezierCurveTo(-length * 0.44, depth * 0.34, length * 0.22, depth * 0.52, length * 0.52, 0);
+    ctx.moveTo(length * 0.52, noseY);
+    ctx.bezierCurveTo(length * 0.22, -depth * 0.52 + midY, -length * 0.44, -depth * 0.34 + tailY, -length * 0.56, tailY);
+    ctx.bezierCurveTo(-length * 0.44, depth * 0.34 + tailY, length * 0.22, depth * 0.52 + midY, length * 0.52, noseY);
   } else if (phenotype.shape === "heavy") {
-    ctx.moveTo(length * 0.55, 0);
-    ctx.bezierCurveTo(length * 0.20, -depth * 0.98, -length * 0.54, -depth * 0.82, -length * 0.64, 0);
-    ctx.bezierCurveTo(-length * 0.54, depth * 0.82, length * 0.20, depth * 0.98, length * 0.55, 0);
+    ctx.moveTo(length * 0.55, noseY);
+    ctx.bezierCurveTo(length * 0.20, -depth * 0.98 + midY, -length * 0.54, -depth * 0.82 + tailY, -length * 0.64, tailY);
+    ctx.bezierCurveTo(-length * 0.54, depth * 0.82 + tailY, length * 0.20, depth * 0.98 + midY, length * 0.55, noseY);
   } else if (phenotype.shape === "leaf" || phenotype.shape === "deep") {
-    ctx.moveTo(length * 0.50, 0);
-    ctx.bezierCurveTo(length * 0.12, -depth * 0.88, -length * 0.52, -depth * 0.72, -length * 0.58, 0);
-    ctx.bezierCurveTo(-length * 0.52, depth * 0.72, length * 0.12, depth * 0.88, length * 0.50, 0);
+    ctx.moveTo(length * 0.50, noseY);
+    ctx.bezierCurveTo(length * 0.12, -depth * 0.88 + midY, -length * 0.52, -depth * 0.72 + tailY, -length * 0.58, tailY);
+    ctx.bezierCurveTo(-length * 0.52, depth * 0.72 + tailY, length * 0.12, depth * 0.88 + midY, length * 0.50, noseY);
   } else {
-    ctx.moveTo(length * 0.58, 0);
-    ctx.bezierCurveTo(length * 0.20, -depth * 0.70, -length * 0.50, -depth * 0.54, -length * 0.62, 0);
-    ctx.bezierCurveTo(-length * 0.50, depth * 0.54, length * 0.20, depth * 0.70, length * 0.58, 0);
+    ctx.moveTo(length * 0.58, noseY);
+    ctx.bezierCurveTo(length * 0.20, -depth * 0.70 + midY, -length * 0.50, -depth * 0.54 + tailY, -length * 0.62, tailY);
+    ctx.bezierCurveTo(-length * 0.50, depth * 0.54 + tailY, length * 0.20, depth * 0.70 + midY, length * 0.58, noseY);
   }
   ctx.closePath();
 }
@@ -442,6 +480,24 @@ function drawTail(phenotype, length, depth, tailLength, pulse, alpha) {
   }
   ctx.fill();
   ctx.stroke();
+  ctx.restore();
+}
+
+function drawWake(phenotype, locomotion, length, depth, tailLength) {
+  if (locomotion.speed < 0.10 && locomotion.tail_beat < 0.15) return;
+  ctx.save();
+  ctx.globalAlpha = Math.min(0.26, 0.05 + locomotion.speed * 0.18 + locomotion.tail_beat * 0.06);
+  ctx.strokeStyle = "rgba(215, 245, 238, 0.42)";
+  ctx.lineWidth = Math.max(1, depth * 0.055);
+  const base = -length * 0.55 - tailLength * 0.80;
+  for (let i = 0; i < 3; i += 1) {
+    const offset = i * tailLength * 0.34;
+    const spread = depth * (0.25 + i * 0.13);
+    ctx.beginPath();
+    ctx.moveTo(base - offset, -spread);
+    ctx.quadraticCurveTo(base - offset - tailLength * 0.30, 0, base - offset, spread);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -564,6 +620,25 @@ function hexToRgb(color) {
   return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
 }
 
+function normalizeAngle(angle) {
+  let result = angle;
+  while (result <= -Math.PI) result += TAU;
+  while (result > Math.PI) result -= TAU;
+  return result;
+}
+
+function interpolateAngle(from, to, alpha) {
+  return normalizeAngle(from + normalizeAngle(to - from) * alpha);
+}
+
+function unwrapPhase(from, to, alpha) {
+  let delta = to - from;
+  if (delta < -Math.PI) delta += TAU;
+  if (delta > Math.PI) delta -= TAU;
+  const value = from + delta * alpha;
+  return ((value % TAU) + TAU) % TAU;
+}
+
 function hitTestFish(x, y) {
   let best = null;
   let bestDistance = Infinity;
@@ -596,6 +671,8 @@ function updateInspector() {
   const phenotype = phenotypeFor(fish);
   document.getElementById("fishPhenotype").textContent = `${phenotype.shape} / ${phenotype.tail} / ${phenotype.pattern}`;
   document.getElementById("fishTraits").textContent = `fin ${Number(phenotype.fin_span).toFixed(2)} camo ${Number(phenotype.camouflage).toFixed(2)}`;
+  const locomotion = locomotionFor(fish);
+  document.getElementById("fishMotion").textContent = `spd ${Number(locomotion.speed).toFixed(2)} turn ${Number(locomotion.turn_rate).toFixed(2)}`;
   document.getElementById("fishDecision").textContent = `${fish.decision.source}: ${fish.decision.kind}`;
   document.getElementById("fishIntent").textContent = fish.active_intent
     ? `${fish.active_intent.kind} ttl ${fish.model_intent_ttl}`

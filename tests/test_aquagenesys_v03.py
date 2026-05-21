@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+from math import pi
 import time
 
 from fastapi.testclient import TestClient
@@ -243,6 +244,41 @@ def test_phenotype_survives_mutation_and_frame_contract() -> None:
     assert child_payload["phenotype"]["primary_color"].startswith("#")
     assert "mechanics" not in frame["fish"][0]["phenotype"]
     assert frame["fish"][0]["phenotype"]["accent_color"].startswith("#")
+    sim.close()
+
+
+def test_locomotion_payload_is_exposed_and_bounded() -> None:
+    sim = AquagenesysSimulation(
+        SimulationConfig(seed=71, width=34, height=22, initial_population=8, deliberation_enabled=False, archive_every_ticks=0)
+    )
+    sim.run(4)
+    state_fish = sim.state()["fish"][0]
+    frame_fish = sim.frame_state()["fish"][0]
+    for payload in (state_fish["locomotion"], frame_fish["locomotion"]):
+        assert -pi <= payload["heading"] <= pi
+        assert 0.0 <= payload["swim_phase"] <= pi * 2
+        assert 0.0 <= payload["tail_beat"] <= 1.0
+        assert 0.0 <= payload["body_wave"] <= 1.0
+        assert payload["speed"] >= 0.0
+        assert payload["stride"] >= 0.0
+    sim.close()
+
+
+def test_locomotion_turns_are_smoothed_not_snapped() -> None:
+    sim = AquagenesysSimulation(
+        SimulationConfig(seed=73, width=30, height=20, initial_population=4, deliberation_enabled=False, archive_every_ticks=0)
+    )
+    fish = sim.fish[0]
+    fish.heading = 0.0
+    fish.turn_rate = 0.0
+    fish.vx = max(0.2, fish.genome.max_speed * 0.4)
+    fish.vy = 0.0
+    perception = sim._sense(fish)
+    sim._apply_action(fish, Action("explore", 0.0, 1.0, 1.0, "habit", "test turn"), perception, {})
+    assert 0.0 < fish.heading < pi / 2
+    assert abs(fish.turn_rate) < pi / 2
+    assert fish.tail_beat > 0.0
+    assert fish.body_wave > 0.0
     sim.close()
 
 

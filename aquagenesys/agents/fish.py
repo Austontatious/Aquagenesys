@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from math import hypot
+from math import atan2, hypot, pi
 from random import Random
 from typing import Any
 
@@ -16,6 +16,17 @@ def unit(dx: float, dy: float) -> tuple[float, float]:
     if magnitude <= 1e-9:
         return (0.0, 0.0)
     return (dx / magnitude, dy / magnitude)
+
+
+TAU = pi * 2.0
+
+
+def wrap_angle(angle: float) -> float:
+    while angle <= -pi:
+        angle += TAU
+    while angle > pi:
+        angle -= TAU
+    return angle
 
 
 def mutate_hex_color(value: str, rng: Random, *, spread: int = 9) -> str:
@@ -512,6 +523,13 @@ class FishAgent:
     model_intent_ttl: int = 0
     last_model_decision: Action | None = None
     model_pending: bool = False
+    heading: float = 0.0
+    turn_rate: float = 0.0
+    swim_phase: float = 0.0
+    tail_beat: float = 0.0
+    body_wave: float = 0.0
+    locomotion_speed: float = 0.0
+    stride: float = 0.0
     alive: bool = True
 
     @property
@@ -634,6 +652,32 @@ class FishAgent:
             del self.recent_outcomes[: len(self.recent_outcomes) - 8]
         self.last_decision = action
 
+    def update_locomotion_state(self, *, speed: float, target_speed: float, turn_delta: float) -> None:
+        capacity = max(0.10, 0.17 + self.genome.turning * 0.22 + self.genome.fin_span * 0.08)
+        self.turn_rate = self.turn_rate * 0.48 + max(-capacity, min(capacity, turn_delta)) * 0.52
+        self.heading = wrap_angle(self.heading + self.turn_rate)
+        if speed > 0.015:
+            velocity_heading = atan2(self.vy, self.vx)
+            self.heading = wrap_angle(self.heading + wrap_angle(velocity_heading - self.heading) * 0.12)
+        normalized_speed = clamp(speed / max(0.05, self.genome.max_speed * 1.22))
+        normalized_target = clamp(target_speed / max(0.05, self.genome.max_speed * 1.22))
+        self.tail_beat = clamp(normalized_speed * 0.64 + normalized_target * 0.28 + abs(self.turn_rate) * 0.32)
+        self.body_wave = clamp(normalized_speed * 0.46 + abs(self.turn_rate) * 1.15 + self.genome.tail_length * 0.10)
+        self.swim_phase = (self.swim_phase + 0.24 + self.tail_beat * (0.34 + self.genome.tail_length * 0.22)) % TAU
+        self.locomotion_speed = speed
+        self.stride = clamp(self.stride * 0.70 + speed * 0.30, 0.0, 2.0)
+
+    def locomotion_payload(self) -> dict[str, Any]:
+        return {
+            "heading": round(wrap_angle(self.heading), 4),
+            "turn_rate": round(self.turn_rate, 4),
+            "swim_phase": round(self.swim_phase, 4),
+            "tail_beat": round(self.tail_beat, 3),
+            "body_wave": round(self.body_wave, 3),
+            "speed": round(self.locomotion_speed, 3),
+            "stride": round(self.stride, 3),
+        }
+
     def payload(self) -> dict[str, Any]:
         return {
             "id": self.fish_id,
@@ -660,6 +704,7 @@ class FishAgent:
             "memory": self.memory.payload(),
             "genome": self.genome.payload(),
             "phenotype": self.genome.phenotype_payload(),
+            "locomotion": self.locomotion_payload(),
             "decision": self.last_decision.payload(),
             "active_intent": self.model_intent.payload() if self.model_intent else None,
             "last_model_decision": self.last_model_decision.payload() if self.last_model_decision else None,
@@ -699,6 +744,7 @@ class FishAgent:
                 "accent_color": self.genome.accent_color,
             },
             "phenotype": self.genome.phenotype_payload(compact=True),
+            "locomotion": self.locomotion_payload(),
             "decision": self.last_decision.payload(),
             "active_intent": self.model_intent.payload() if self.model_intent else None,
             "last_model_decision": self.last_model_decision.payload() if self.last_model_decision else None,

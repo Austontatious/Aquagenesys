@@ -3,13 +3,13 @@ from __future__ import annotations
 from collections import Counter, deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-from math import hypot
+from math import atan2, cos, hypot, sin
 from pathlib import Path
 from random import Random
 from typing import Any
 
 from aquagenesys.agents import Action, FishAgent, FishDeliberationController, FishDeliberationResult, FishGenome, Perception
-from aquagenesys.agents.fish import clamp, unit
+from aquagenesys.agents.fish import clamp, unit, wrap_angle
 from aquagenesys.environment.puddle import EnvironmentConfig, PuddleEnvironment
 from aquagenesys.storage import FishArchive
 
@@ -219,6 +219,9 @@ class AquagenesysSimulation:
                 reproductive_drive=self.rng.uniform(0.05, 0.22),
                 model_budget=self.config.fish_model_budget,
             )
+            if abs(fish.vx) + abs(fish.vy) > 0.001:
+                fish.heading = atan2(fish.vy, fish.vx)
+                fish.locomotion_speed = hypot(fish.vx, fish.vy)
             self.next_fish_id += 1
             self.fish.append(fish)
             if birth_kind == "debug_reseed":
@@ -504,21 +507,46 @@ class AquagenesysSimulation:
         thrust = 0.88 + fish.genome.tail_length * 0.20 - fish.genome.body_depth * 0.06
         maneuver = 0.86 + fish.genome.fin_span * 0.18 + fish.genome.tail_length * 0.04
         drag = 0.88 + fish.genome.body_depth * 0.11 + fish.genome.body_size * 0.05
-        speed = fish.genome.max_speed * thrust * (0.48 + fish.health * 0.36 + max(0.0, 1.0 - fish.hunger) * 0.16)
+        speed_cap = fish.genome.max_speed * thrust * (0.48 + fish.health * 0.36 + max(0.0, 1.0 - fish.hunger) * 0.16)
         intensity = action.intensity
         if action.kind == "rest":
             intensity *= 0.18
         if action.kind in {"flee", "escape"}:
             intensity *= 1.25
-        fish.vx = fish.vx * (0.54 + fish.genome.turning * 0.14) + action.dx * fish.genome.turning * maneuver * intensity * 0.34 + current_x
-        fish.vy = fish.vy * (0.54 + fish.genome.turning * 0.14) + action.dy * fish.genome.turning * maneuver * intensity * 0.34 + current_y
+        desired_dx = action.dx * max(0.05, intensity) + current_x * 0.40
+        desired_dy = action.dy * max(0.05, intensity) + current_y * 0.40
+        desired_magnitude = hypot(desired_dx, desired_dy)
+        if desired_magnitude > 0.025:
+            desired_heading = atan2(desired_dy, desired_dx)
+        elif abs(fish.vx) + abs(fish.vy) > 0.015:
+            desired_heading = atan2(fish.vy, fish.vx)
+        else:
+            desired_heading = fish.heading
+        turn_delta = wrap_angle(desired_heading - fish.heading)
+        turn_capacity = 0.10 + fish.genome.turning * 0.26 + fish.genome.fin_span * 0.08
+        applied_turn = max(-turn_capacity, min(turn_capacity, turn_delta))
+        heading = wrap_angle(fish.heading + fish.turn_rate * 0.48 + applied_turn * 0.52)
+        forward_x = cos(heading)
+        forward_y = sin(heading)
+        side_x = -forward_y
+        side_y = forward_x
+        current_forward = fish.vx * forward_x + fish.vy * forward_y
+        current_lateral = fish.vx * side_x + fish.vy * side_y
+        target_speed = speed_cap * clamp(0.18 + intensity * 0.86, 0.0, 1.18)
+        acceleration = (target_speed - current_forward) * (0.18 + fish.genome.max_speed * 0.08 + fish.genome.tail_length * 0.06)
+        forward_speed = current_forward + acceleration
+        lateral_speed = current_lateral * (0.55 - min(0.16, fish.genome.fin_span * 0.08))
+        fish.vx = forward_x * forward_speed + side_x * lateral_speed + current_x * 0.34
+        fish.vy = forward_y * forward_speed + side_y * lateral_speed + current_y * 0.34
         magnitude = hypot(fish.vx, fish.vy)
-        if magnitude > speed:
-            fish.vx = fish.vx / magnitude * speed
-            fish.vy = fish.vy / magnitude * speed
+        if magnitude > speed_cap:
+            fish.vx = fish.vx / magnitude * speed_cap
+            fish.vy = fish.vy / magnitude * speed_cap
         fish.x += fish.vx
         fish.y += fish.vy
         fish.x, fish.y, fish.vx, fish.vy = self.environment.keep_in_bounds(fish.x, fish.y, fish.vx, fish.vy)
+        actual_speed = hypot(fish.vx, fish.vy)
+        fish.update_locomotion_state(speed=actual_speed, target_speed=target_speed, turn_delta=applied_turn)
 
         moved = abs(fish.vx) + abs(fish.vy)
         basal = 0.070 + fish.genome.body_size * 0.025
@@ -629,6 +657,9 @@ class AquagenesysSimulation:
             generation=parent.generation + 1,
             parent_ids=(parent.fish_id,),
             model_budget=max(1, self.config.fish_model_budget - 1),
+            heading=parent.heading,
+            swim_phase=parent.swim_phase,
+            locomotion_speed=hypot(parent.vx, parent.vy),
         )
         self.next_fish_id += 1
         parent.energy -= 18.0
