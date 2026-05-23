@@ -1,6 +1,6 @@
-# Aquagenesys v0.3.5
+# Aquagenesys v0.3.6
 
-Aquagenesys v0.3.5 is a real-time dirty-puddle artificial ecology. The CPU owns the puddle chemistry and physics; fish are bounded local agents that mostly act through reflexes and habits, with sparse deliberation routed to the local Lexi vLLM service when budget and pressure allow.
+Aquagenesys v0.3.6 is a real-time dirty-puddle artificial ecology with an ecology observatory UI. The CPU owns the puddle chemistry and physics; fish are bounded local agents that mostly act through reflexes and habits, with sparse deliberation routed to the local Lexi vLLM service when budget and pressure allow.
 
 ## Run
 
@@ -19,7 +19,7 @@ The default model endpoint is OpenAI-compatible Lexi on `http://127.0.0.1:8008/v
 python -m aquagenesys.web.app --no-deliberation
 ```
 
-## v0.3.5 Architecture
+## v0.3.6 Architecture
 
 - `aquagenesys.environment.PuddleEnvironment` owns deterministic 2D world fields: temperature, oxygen, pH, turbidity, nutrients, light, currents, shelter, substrate, obstacles, food, plankton, waste, toxins, decomposition/detritus, reproduction support, population pressure, and ecological balance.
 - `aquagenesys.agents.FishAgent` owns fish identity, body state, position, energy, hunger, fear, stress, health, reproductive drive, maturity/fertility state, memory, recent outcomes, model-call budget, and genome strategy.
@@ -34,7 +34,7 @@ python -m aquagenesys.web.app --no-deliberation
 
 ## Instruction Inheritance
 
-v0.3.5 adds the first explicit recursive-agent showcase layer. Parent organisms can influence offspring behavior priors, but only through bounded schemas:
+Parent organisms can influence offspring behavior priors, but only through bounded schemas:
 
 ```text
 parent strategy + taught skill proposal
@@ -77,7 +77,17 @@ Deaths and waste now feed local decomposition/detritus, nutrients, food, and pla
 
 The FastAPI viewer exposes `/api/state`, compact `/api/frame`, and `/api/control`. The browser polls `/api/frame` for lightweight movement and lifecycle metrics, interpolates fish motion with `requestAnimationFrame`, and keeps `/api/state` at a lower cadence for full environment fields.
 
-The side panel shows adults, eggs, viable eggs, dormant eggs, births, hatched eggs, lineages, reproduction gate failures, instruction patch metrics, policy variants, and recent lifecycle events. Hover or click a fish to inspect stable id, lineage, generation, species, archetype, phenotype, locomotion, maturity/fertility state, life-history summary, egg-bank traits, parthenogenesis alleles, reproduction cooldown, instruction policy hash/label, risk/forage/energy strategies, teaching style, skill count, accepted/rejected patch counts, and last reproduction gate.
+v0.3.6 reshapes the viewer as an ecology observatory:
+
+- the puddle canvas remains the dominant visual surface
+- the right sidebar focuses on hovered/selected fish and optional two-fish comparison
+- the below-puddle observatory shows the ecology narrator, population/lifecycle dashboard, lineage/policy/teaching summaries, event timeline, and diagnostics
+- `/api/state` includes a dashboard-friendly `aquagenesys.dashboard.v1` object
+- `/api/frame` remains compact and does not carry dashboard payloads
+
+Hover a fish for a quick preview. Click to focus one fish. Ctrl-click or command-click a second fish to compare body, lifecycle, policy, strategy, teaching history, current action, and relationship signals such as shared lineage, shared policy, feeding role, and proximity.
+
+The ecology narrator is deterministic and grounded in current state. It summarizes population pressure, egg-bank resilience, dominant lineages, policy prevalence, teaching activity, and recent events without model calls or freeform fiction.
 
 Per fish tick:
 
@@ -121,4 +131,4 @@ Runtime settings are centralized in `core/config.py` and may be provided with `A
 
 ## Known Limitations
 
-Aquagenesys still uses compact compatibility heuristics for mate contact rather than a full sexual genetics model. Eggs model viability and dormancy but not detailed embryology. Instruction inheritance is structured and compact rather than a full natural-language agent-program evolution system. A future v0.3.6/v0.4 pass should make lineage traces easier to inspect without adding runtime code editing.
+Aquagenesys still uses compact compatibility heuristics for mate contact rather than a full sexual genetics model. Eggs model viability and dormancy but not detailed embryology. Instruction inheritance is structured and compact rather than a full natural-language agent-program evolution system. v0.3.6 makes lineage and policy visibility much clearer, but it deliberately does not add a full genealogy graph; that belongs in a later lineage explorer pass.

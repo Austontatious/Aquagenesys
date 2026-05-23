@@ -1,5 +1,5 @@
 {
-  "name": "v035-life-history-bottleneck",
+  "name": "v036-life-history-bottleneck",
   "input": {
     "seed": 134,
     "width": 36,
@@ -10,11 +10,13 @@
     "deliberation_enabled": false
   },
   "expected": {
-    "schema": "aquagenesys.state.v5",
+    "schema": "aquagenesys.state.v6",
     "frame_schema": "aquagenesys.frame.v3",
     "max_frame_state_ratio": 0.55,
     "min_population": 1,
     "requires_decisions": true,
+    "requires_dashboard": true,
+    "requires_narrator": true,
     "model_calls": 0,
     "instruction_inheritance_enabled": true,
     "model_teaching_enabled": false

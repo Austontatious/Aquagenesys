@@ -1,5 +1,5 @@
 {
-  "name": "v035-forbidden-instruction-patch",
+  "name": "v036-forbidden-instruction-patch",
   "input": {
     "scenario": "forbidden_patch",
     "seed": 352,
@@ -11,11 +11,13 @@
     "deliberation_enabled": false
   },
   "expected": {
-    "schema": "aquagenesys.state.v5",
+    "schema": "aquagenesys.state.v6",
     "frame_schema": "aquagenesys.frame.v3",
     "max_frame_state_ratio": 0.55,
     "min_population": 1,
     "requires_decisions": true,
+    "requires_dashboard": true,
+    "requires_narrator": true,
     "model_calls": 0,
     "min_instruction_patches_rejected": 1,
     "instruction_inheritance_enabled": true,

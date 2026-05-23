@@ -6,6 +6,7 @@ const speedValue = document.getElementById("speedValue");
 const deliberation = document.getElementById("deliberation");
 const reset = document.getElementById("reset");
 const randomize = document.getElementById("randomize");
+const clearSelection = document.getElementById("clearSelection");
 
 const FRAME_POLL_MS = 320;
 const STATE_POLL_MS = 2600;
@@ -22,7 +23,14 @@ let frameFetchInFlight = false;
 let stateFetchInFlight = false;
 let hoverFishId = null;
 let selectedFishId = null;
+let compareFishId = null;
 let renderedFish = [];
+const historySamples = {
+  adults: [],
+  eggs: [],
+  lineages: [],
+  policies: [],
+};
 
 function resizeCanvas() {
   const rect = canvas.getBoundingClientRect();
@@ -46,9 +54,22 @@ canvas.addEventListener("mouseleave", () => {
   hoverFishId = null;
 });
 
-canvas.addEventListener("click", () => {
-  if (hoverFishId !== null) {
+canvas.addEventListener("click", (event) => {
+  if (hoverFishId === null) {
+    compareFishId = null;
+    selectedFishId = null;
+    return;
+  }
+  if (event.ctrlKey || event.metaKey) {
+    if (selectedFishId === null || selectedFishId === hoverFishId) {
+      selectedFishId = hoverFishId;
+      compareFishId = null;
+    } else {
+      compareFishId = hoverFishId;
+    }
+  } else {
     selectedFishId = hoverFishId;
+    compareFishId = null;
   }
 });
 
@@ -76,6 +97,10 @@ deliberation.addEventListener("change", () => {
 
 reset.addEventListener("click", () => postControl({ action: "reset" }));
 randomize.addEventListener("click", () => postControl({ action: "randomize_environment" }));
+clearSelection.addEventListener("click", () => {
+  selectedFishId = null;
+  compareFishId = null;
+});
 
 function syncControls(state) {
   speed.value = state.config.speed;
@@ -125,6 +150,7 @@ function applyState(state) {
     telemetry: state.telemetry,
   });
   updateTelemetry(state.telemetry);
+  updateDashboard(state.dashboard, state.telemetry);
 }
 
 function applyFrame(frame) {
@@ -162,63 +188,90 @@ function updateTelemetry(telemetry) {
   document.getElementById("lineages").textContent = telemetry.lineage_count ?? 0;
   document.getElementById("health").textContent = Number(telemetry.average_health || 0).toFixed(2);
   document.getElementById("stress").textContent = Number(telemetry.average_stress || 0).toFixed(2);
-  document.getElementById("modelCalls").textContent = telemetry.model?.calls ?? 0;
-  document.getElementById("modelPending").textContent = telemetry.model?.pending ?? 0;
   const instruction = telemetry.instruction || {};
   document.getElementById("policyVariants").textContent = instruction.policy_variants_alive ?? 0;
   document.getElementById("teachingEvents").textContent = instruction.teaching_events ?? 0;
-  document.getElementById("instructionPatches").textContent = instruction.patches_accepted ?? 0;
-  document.getElementById("instructionRejected").textContent = instruction.patches_rejected ?? 0;
-  fillList("decisions", telemetry.agent_decisions || [], (item) => [
-    `${item.tick} #${item.fish_id} ${item.action}`,
-    `${item.source}: ${item.outcome}`,
-  ]);
-  fillList("events", telemetry.recent_events || [], (item) => [eventLabel(item), eventDetail(item)]);
-  fillList("reproduction", telemetry.recent_reproduction_events || [], (item) => [
-    `${item.tick} #${item.fish_id ?? "-"} ${String(item.reason || item.mode || "").replaceAll("_", " ")}`,
-    item.egg_count ? `${item.egg_count} eggs` : item.offspring_count ? `${item.offspring_count} born` : item.fertility_state || "",
-  ]);
-  fillList("gates", Object.entries(telemetry.reproduction_gate_reasons || {}), (item) => [
-    String(item[0]).replaceAll("_", " "),
-    item[1],
-  ]);
-  fillList("instruction", instruction.recent_events || [], (item) => [
-    `${item.tick} ${String(item.event_type || item.delivery || "instruction").replaceAll("_", " ")}`,
-    item.offspring_policy_label || item.patch_reason || item.patch_id || "",
-  ]);
-  fillList("instructionRejections", Object.entries(instruction.rejection_reasons || {}), (item) => [
-    String(item[0]).replaceAll("_", " "),
-    item[1],
-  ]);
-  fillList("clusters", telemetry.species_clusters || [], (item) => [item.label, `${item.size} ${item.metabolism}`]);
-  fillList("deaths", Object.entries(telemetry.deaths_by_cause || {}), (item) => [item[0], item[1]]);
+  recordHistory(telemetry);
 }
 
-function eventLabel(event) {
-  return `${event.tick} ${String(event.kind).replaceAll("_", " ")}`;
+function recordHistory(telemetry) {
+  pushHistory("adults", telemetry.adult_population ?? telemetry.population ?? 0);
+  pushHistory("eggs", telemetry.egg_count ?? 0);
+  pushHistory("lineages", telemetry.lineage_count ?? 0);
+  pushHistory("policies", telemetry.instruction?.policy_variants_alive ?? 0);
+  renderSparkline("adultSpark", historySamples.adults);
+  renderSparkline("eggSpark", historySamples.eggs);
+  renderSparkline("lineageSpark", historySamples.lineages);
+  renderSparkline("policySpark", historySamples.policies);
 }
 
-function eventDetail(event) {
-  if (event.kind === "birth") return `#${event.child}`;
-  if (event.kind === "egg_clutch") return `${event.eggs} eggs`;
-  if (event.kind === "egg_hatched") return `#${event.child}`;
-  if (event.kind === "egg_died") return event.cause || "";
-  if (event.kind === "instruction_patch_accepted") return event.skill || event.patch_id || "";
-  if (event.kind === "instruction_patch_rejected") return event.reason || "";
-  if (event.kind === "dormant_biosphere") return `${event.viable_eggs} viable eggs`;
-  if (event.kind === "death") return event.cause || "";
-  if (event.kind === "model_deliberation_queued") return `pending ${event.pending}`;
-  if (event.kind === "model_deliberation") return `${event.action} ttl ${event.ttl}`;
-  if (event.kind === "model_deliberation_failed") return "fallback";
-  if (event.kind === "extinction") return event.cause_guess || "dead puddle";
-  if (event.kind === "debug_founder_reseed") return `${event.count} debug`;
-  if (event.kind === "environment_randomized") return "new chemistry";
-  if (event.value !== undefined) return event.value;
-  return "";
+function pushHistory(key, value) {
+  const series = historySamples[key];
+  const numeric = Number(value) || 0;
+  if (series[series.length - 1] !== numeric) {
+    series.push(numeric);
+  }
+  while (series.length > 36) series.shift();
+}
+
+function renderSparkline(id, values) {
+  const node = document.getElementById(id);
+  if (!node) return;
+  const max = Math.max(1, ...values);
+  node.innerHTML = "";
+  for (const value of values.slice(-28)) {
+    const bar = document.createElement("i");
+    bar.style.height = `${Math.max(10, (Number(value) / max) * 100)}%`;
+    node.appendChild(bar);
+  }
+}
+
+function updateDashboard(dashboard, telemetry) {
+  if (!dashboard) return;
+  const narrator = dashboard.narrator || {};
+  document.getElementById("narratorHeadline").textContent = narrator.headline || "Ecology state is still warming up.";
+  fillPlainList("narratorPoints", narrator.points || []);
+  const population = dashboard.population || {};
+  document.getElementById("populationTrend").textContent = labelize(population.trend || "unknown");
+  document.getElementById("reproductionPressure").textContent = labelize(population.reproduction_pressure || "unknown");
+  document.getElementById("eggBankResilience").textContent = labelize(population.egg_bank_resilience || "none");
+  document.getElementById("biosphereState").textContent = labelize(population.biosphere_state || telemetry?.biosphere_state || "unknown");
+  fillList("topLineages", dashboard.lineages?.top || [], (item) => [
+    `Lineage ${item.lineage_id}`,
+    `${item.adults} adults / ${item.viable_eggs} eggs / ${labelize(item.policy_label)}`,
+  ]);
+  fillList("topPolicies", dashboard.policies?.families || [], (item) => [
+    labelize(item.label),
+    `${item.count} adults (${Math.round(Number(item.share || 0) * 100)}%)`,
+  ]);
+  const teaching = dashboard.teaching || {};
+  fillList(
+    "teachingSummary",
+    [
+      ["inheritance deliveries", teaching.inheritance_events ?? 0],
+      ["accepted patches", teaching.patches_accepted ?? 0],
+      ["rejected patches", teaching.patches_rejected ?? 0],
+    ],
+    (item) => [labelize(item[0]), item[1]],
+  );
+  fillTimeline("timeline", dashboard.events || []);
+  fillList("gates", dashboard.diagnostics?.gate_failures || [], (item) => [labelize(item.reason), item.count]);
+  fillList("instructionRejections", dashboard.diagnostics?.patch_rejections || [], (item) => [labelize(item.reason), item.count]);
+  const model = dashboard.diagnostics?.model || {};
+  fillList(
+    "modelDiagnostics",
+    [
+      ["model calls", model.calls ?? 0],
+      ["pending", model.pending ?? 0],
+      ["failures", model.failures ?? 0],
+    ],
+    (item) => [labelize(item[0]), item[1]],
+  );
 }
 
 function fillList(id, items, render) {
   const node = document.getElementById(id);
+  if (!node) return;
   node.innerHTML = "";
   for (const item of items.slice(0, 8)) {
     const [left, right] = render(item);
@@ -230,6 +283,50 @@ function fillList(id, items, render) {
     li.append(label, value);
     node.appendChild(li);
   }
+}
+
+function fillPlainList(id, items) {
+  const node = document.getElementById(id);
+  if (!node) return;
+  node.innerHTML = "";
+  for (const item of items.slice(0, 6)) {
+    const li = document.createElement("li");
+    const label = document.createElement("span");
+    label.textContent = item;
+    li.appendChild(label);
+    node.appendChild(li);
+  }
+}
+
+function fillTimeline(id, items) {
+  const node = document.getElementById(id);
+  if (!node) return;
+  node.innerHTML = "";
+  for (const item of items.slice(0, 16)) {
+    const li = document.createElement("li");
+    li.classList.add(item.severity || "info");
+    if (item.fish_id) {
+      li.dataset.fishId = item.fish_id;
+      li.addEventListener("click", () => {
+        selectedFishId = Number(item.fish_id);
+        compareFishId = null;
+      });
+    }
+    const label = document.createElement("span");
+    const title = document.createElement("b");
+    const detail = document.createElement("em");
+    title.textContent = `${item.tick} ${labelize(item.type)} - ${labelize(item.title)}`;
+    detail.textContent = item.detail || (item.lineage_id ? `lineage ${item.lineage_id}` : "");
+    label.append(title, detail);
+    const value = document.createElement("b");
+    value.textContent = item.fish_id ? `#${item.fish_id}` : item.lineage_id ? `L${item.lineage_id}` : "";
+    li.append(label, value);
+    node.appendChild(li);
+  }
+}
+
+function labelize(value) {
+  return String(value || "-").replaceAll("_", " ").replaceAll("-", " ");
 }
 
 function rebuildField(env) {
@@ -368,6 +465,7 @@ function drawFish(fishList, sx, sy) {
     const bodyBend = pulse * (0.05 + locomotion.body_wave * 0.10);
     const isHover = fish.id === hoverFishId;
     const isSelected = fish.id === selectedFishId;
+    const isCompared = fish.id === compareFishId;
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle + pulse * locomotion.body_wave * 0.025);
@@ -419,9 +517,13 @@ function drawFish(fishList, sx, sy) {
       ctx.ellipse(0, 0, (bodyLength + tailLength) * 0.72, bodyDepth * 1.45, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
-    if (isHover || isSelected) {
-      ctx.strokeStyle = isSelected ? "rgba(255, 255, 255, 0.95)" : "rgba(123, 212, 176, 0.85)";
-      ctx.lineWidth = isSelected ? 2 : 1;
+    if (isHover || isSelected || isCompared) {
+      ctx.strokeStyle = isSelected
+        ? "rgba(255, 255, 255, 0.95)"
+        : isCompared
+          ? "rgba(230, 176, 93, 0.94)"
+          : "rgba(123, 212, 176, 0.85)";
+      ctx.lineWidth = isSelected || isCompared ? 2 : 1;
       ctx.beginPath();
       ctx.ellipse(0, 0, (bodyLength + tailLength) * 0.80, bodyDepth * 1.72, 0, 0, Math.PI * 2);
       ctx.stroke();
@@ -720,6 +822,7 @@ function updateInspector() {
   if (!fish) {
     empty.hidden = false;
     details.hidden = true;
+    updateCompare();
     return;
   }
   empty.hidden = true;
@@ -753,11 +856,103 @@ function updateInspector() {
       ? "pending"
       : "none";
   document.getElementById("fishEnergy").textContent = `${Number(fish.energy).toFixed(1)} / h ${Number(fish.hunger).toFixed(2)}`;
+  document.getElementById("fishLineageContext").textContent = lineageContextFor(fish);
+  document.getElementById("fishExplain").textContent = explainFish(fish);
+  updateCompare();
 }
 
 function findFish(id) {
   if (id === null || !currentFrame) return null;
   return (currentFrame.fish || []).find((fish) => fish.id === id) || null;
+}
+
+function lineageContextFor(fish) {
+  const hints = latestState?.dashboard?.focus_hints || {};
+  const adults = hints.lineage_adults?.[String(fish.lineage)] ?? "-";
+  const eggs = hints.lineage_viable_eggs?.[String(fish.lineage)] ?? 0;
+  const nearby = hints.nearby?.[fish.id];
+  const neighbor = nearby ? ` near #${nearby.fish_id} (${nearby.distance})` : "";
+  return `L${fish.lineage}: ${adults} adults / ${eggs} viable eggs${neighbor}`;
+}
+
+function explainFish(fish) {
+  const decision = fish.decision || {};
+  const gate = fish.last_reproduction_gate ? ` Repro gate: ${labelize(fish.last_reproduction_gate)}.` : "";
+  const intent = fish.active_intent ? ` Carrying model intent ${fish.active_intent.kind}.` : "";
+  return `${labelize(decision.source)} chose ${labelize(decision.kind)} because ${decision.reason || "local reflex/habit policy"}.${gate}${intent}`;
+}
+
+function updateCompare() {
+  const panel = document.getElementById("comparePanel");
+  const primary = findFish(selectedFishId);
+  const secondary = findFish(compareFishId);
+  if (!primary || !secondary || primary.id === secondary.id) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  renderCompareSummary(primary, secondary);
+  renderCompareDetails("compareA", primary);
+  renderCompareDetails("compareB", secondary);
+}
+
+function renderCompareSummary(a, b) {
+  const node = document.getElementById("compareSummary");
+  const rows = compareRelationship(a, b);
+  node.innerHTML = "";
+  for (const text of rows.slice(0, 5)) {
+    const p = document.createElement("p");
+    p.textContent = text;
+    node.appendChild(p);
+  }
+}
+
+function renderCompareDetails(id, fish) {
+  const node = document.getElementById(id);
+  const phenotype = phenotypeFor(fish);
+  const instruction = fish.instruction || fish.instruction_genome || {};
+  const rows = [
+    ["ID", `#${fish.id} L${fish.lineage} G${fish.generation}`],
+    ["Body", `${fish.genome.archetype} ${phenotype.shape}`],
+    ["Lifecycle", `${fish.maturity_state} / ${fish.fertility_state}`],
+    ["State", `E ${Number(fish.energy).toFixed(1)} H ${Number(fish.health).toFixed(2)} S ${Number(fish.stress).toFixed(2)}`],
+    ["Policy", `${instruction.policy_hash_short || "-"} ${instruction.policy_label || ""}`],
+    ["Strategy", `${labelize(instruction.risk_posture)} / ${labelize(instruction.forage_strategy)} / ${labelize(instruction.energy_strategy)}`],
+    ["Action", `${fish.decision.source}: ${fish.decision.kind}`],
+  ];
+  node.innerHTML = "";
+  for (const [label, value] of rows) {
+    const wrapper = document.createElement("div");
+    const dt = document.createElement("dt");
+    const dd = document.createElement("dd");
+    dt.textContent = label;
+    dd.textContent = value;
+    wrapper.append(dt, dd);
+    node.appendChild(wrapper);
+  }
+}
+
+function compareRelationship(a, b) {
+  const rows = [];
+  const distance = Math.hypot((a.renderX ?? a.x) - (b.renderX ?? b.x), (a.renderY ?? a.y) - (b.renderY ?? b.y));
+  if (a.lineage === b.lineage) rows.push(`Same lineage L${a.lineage}; compare inherited policy drift and lifecycle state.`);
+  else rows.push(`Different lineages: L${a.lineage} versus L${b.lineage}.`);
+  const aInstruction = a.instruction || {};
+  const bInstruction = b.instruction || {};
+  if (aInstruction.policy_hash_short && aInstruction.policy_hash_short === bInstruction.policy_hash_short) {
+    rows.push(`They share policy ${aInstruction.policy_hash_short} (${labelize(aInstruction.policy_label)}).`);
+  } else {
+    rows.push(`Policy split: ${labelize(aInstruction.policy_label)} versus ${labelize(bInstruction.policy_label)}.`);
+  }
+  if (a.genome.metabolism !== b.genome.metabolism) {
+    rows.push(`Different feeding roles: ${a.genome.metabolism} versus ${b.genome.metabolism}.`);
+  } else {
+    rows.push(`Both use the ${a.genome.metabolism} feeding role and may compete for similar resources.`);
+  }
+  if (distance < 8) rows.push(`They are nearby on screen, so schooling, mating, or resource competition may be relevant.`);
+  const fertility = `${a.fertility_state}/${b.fertility_state}`;
+  rows.push(`Fertility comparison: A/B = ${fertility}.`);
+  return rows;
 }
 
 function stateColor(state) {

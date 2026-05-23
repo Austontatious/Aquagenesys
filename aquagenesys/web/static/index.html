@@ -3,20 +3,85 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Aquagenesys v0.3.5</title>
+    <title>Aquagenesys v0.3.6</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
     <main class="shell">
-      <section class="puddle" aria-label="Aquagenesys puddle viewer">
-        <canvas id="pond" width="1200" height="760"></canvas>
-        <div class="hud">
-          <b>Aquagenesys v0.3.5</b>
-          <span id="status">connecting</span>
-        </div>
-        <div id="puddleState" class="state-banner" hidden>DEAD PUDDLE - chemistry still running</div>
-      </section>
+      <div class="main-column">
+        <section class="puddle" aria-label="Aquagenesys puddle viewer">
+          <canvas id="pond" width="1200" height="760"></canvas>
+          <div class="hud">
+            <b>Aquagenesys v0.3.6</b>
+            <span id="status">connecting</span>
+          </div>
+          <div id="puddleState" class="state-banner" hidden>DEAD PUDDLE - chemistry still running</div>
+        </section>
+
+        <section class="observatory" aria-label="Aquagenesys ecology observatory">
+          <section class="narrator">
+            <h2>Ecology Narrator</h2>
+            <p id="narratorHeadline">Waiting for the first ecology snapshot.</p>
+            <ul id="narratorPoints" class="narrator-points"></ul>
+          </section>
+
+          <section class="overview" aria-label="Ecosystem summary">
+            <h2>Population / Lifecycle</h2>
+            <dl class="metrics">
+              <div><dt>Tick</dt><dd id="tick">0</dd></div>
+              <div><dt>Adults</dt><dd id="population">0</dd></div>
+              <div><dt>Eggs</dt><dd id="eggCount">0</dd></div>
+              <div><dt>Viable</dt><dd id="viableEggs">0</dd></div>
+              <div><dt>Dormant</dt><dd id="dormantEggs">0</dd></div>
+              <div><dt>Births</dt><dd id="births">0</dd></div>
+              <div><dt>Hatched</dt><dd id="eggsHatched">0</dd></div>
+              <div><dt>Lineages</dt><dd id="lineages">0</dd></div>
+              <div><dt>Health</dt><dd id="health">0</dd></div>
+              <div><dt>Stress</dt><dd id="stress">0</dd></div>
+              <div><dt>Policies</dt><dd id="policyVariants">0</dd></div>
+              <div><dt>Teaching</dt><dd id="teachingEvents">0</dd></div>
+            </dl>
+            <div class="interpretation-grid">
+              <div><dt>Population trend</dt><dd id="populationTrend">-</dd></div>
+              <div><dt>Reproduction pressure</dt><dd id="reproductionPressure">-</dd></div>
+              <div><dt>Egg-bank resilience</dt><dd id="eggBankResilience">-</dd></div>
+              <div><dt>Biosphere state</dt><dd id="biosphereState">-</dd></div>
+            </div>
+            <div class="spark-grid" aria-label="Recent dashboard trends">
+              <div><span>Adults</span><div id="adultSpark" class="sparkline"></div></div>
+              <div><span>Eggs</span><div id="eggSpark" class="sparkline"></div></div>
+              <div><span>Lineages</span><div id="lineageSpark" class="sparkline"></div></div>
+              <div><span>Policies</span><div id="policySpark" class="sparkline"></div></div>
+            </div>
+          </section>
+
+          <section class="observatory-grid">
+            <div>
+              <h2>Lineage Observatory</h2>
+              <ul id="topLineages" class="dense-list"></ul>
+            </div>
+            <div>
+              <h2>Policy / Teaching</h2>
+              <ul id="topPolicies" class="dense-list"></ul>
+              <ul id="teachingSummary" class="dense-list"></ul>
+            </div>
+          </section>
+
+          <section class="observatory-grid">
+            <div>
+              <h2>Events Timeline</h2>
+              <ul id="timeline" class="timeline"></ul>
+            </div>
+            <div>
+              <h2>Diagnostics</h2>
+              <ul id="gates" class="dense-list"></ul>
+              <ul id="instructionRejections" class="dense-list"></ul>
+              <ul id="modelDiagnostics" class="dense-list"></ul>
+            </div>
+          </section>
+        </section>
+      </div>
       <aside class="panel">
         <div class="controls">
           <label class="range">
@@ -31,31 +96,13 @@
           <div class="buttons">
             <button id="reset" type="button">Reset</button>
             <button id="randomize" type="button">Randomize</button>
+            <button id="clearSelection" type="button">Clear Focus</button>
           </div>
         </div>
 
-        <dl class="metrics">
-          <div><dt>Tick</dt><dd id="tick">0</dd></div>
-          <div><dt>Adults</dt><dd id="population">0</dd></div>
-          <div><dt>Eggs</dt><dd id="eggCount">0</dd></div>
-          <div><dt>Viable</dt><dd id="viableEggs">0</dd></div>
-          <div><dt>Dormant</dt><dd id="dormantEggs">0</dd></div>
-          <div><dt>Births</dt><dd id="births">0</dd></div>
-          <div><dt>Hatched</dt><dd id="eggsHatched">0</dd></div>
-          <div><dt>Lineages</dt><dd id="lineages">0</dd></div>
-          <div><dt>Health</dt><dd id="health">0</dd></div>
-          <div><dt>Stress</dt><dd id="stress">0</dd></div>
-          <div><dt>Model</dt><dd id="modelCalls">0</dd></div>
-          <div><dt>Pending</dt><dd id="modelPending">0</dd></div>
-          <div><dt>Policies</dt><dd id="policyVariants">0</dd></div>
-          <div><dt>Teaching</dt><dd id="teachingEvents">0</dd></div>
-          <div><dt>Patches</dt><dd id="instructionPatches">0</dd></div>
-          <div><dt>Rejected</dt><dd id="instructionRejected">0</dd></div>
-        </dl>
-
         <section class="inspector">
-          <h2>Fish Inspector</h2>
-          <div id="emptyInspector" class="empty">None selected</div>
+          <h2>Focused Fish</h2>
+          <div id="emptyInspector" class="empty">Hover a fish for preview. Click to focus. Ctrl-click a second fish to compare.</div>
           <dl id="fishInspector" class="fish-details" hidden>
             <div><dt>ID</dt><dd id="fishId">-</dd></div>
             <div><dt>Species</dt><dd id="fishSpecies">-</dd></div>
@@ -72,26 +119,24 @@
             <div><dt>Decision</dt><dd id="fishDecision">-</dd></div>
             <div><dt>Intent</dt><dd id="fishIntent">-</dd></div>
             <div><dt>Energy</dt><dd id="fishEnergy">-</dd></div>
+            <div><dt>Lineage context</dt><dd id="fishLineageContext">-</dd></div>
+            <div><dt>Why now</dt><dd id="fishExplain">-</dd></div>
           </dl>
         </section>
 
-        <section class="lists">
-          <h2>Agent Decisions</h2>
-          <ul id="decisions"></ul>
-          <h2>Ecology Events</h2>
-          <ul id="events"></ul>
-          <h2>Reproduction</h2>
-          <ul id="reproduction"></ul>
-          <h2>Gate Failures</h2>
-          <ul id="gates"></ul>
-          <h2>Instruction</h2>
-          <ul id="instruction"></ul>
-          <h2>Patch Rejections</h2>
-          <ul id="instructionRejections"></ul>
-          <h2>Species</h2>
-          <ul id="clusters"></ul>
-          <h2>Deaths</h2>
-          <ul id="deaths"></ul>
+        <section id="comparePanel" class="compare-panel" hidden>
+          <h2>Fish Comparison</h2>
+          <div id="compareSummary" class="compare-summary"></div>
+          <div class="compare-grid">
+            <div>
+              <h3>Fish A</h3>
+              <dl id="compareA" class="fish-details"></dl>
+            </div>
+            <div>
+              <h3>Fish B</h3>
+              <dl id="compareB" class="fish-details"></dl>
+            </div>
+          </div>
         </section>
       </aside>
     </main>

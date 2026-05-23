@@ -74,7 +74,7 @@ class CodexStandardsConfig:
 
 @dataclass(frozen=True)
 class AquagenesysRuntimeConfig:
-    """Typed runtime config for the v0.3.5 local ecology service."""
+    """Typed runtime config for the v0.3.6 local ecology service."""
 
     host: str
     port: int

@@ -1,0 +1,42 @@
+{
+  "version": "0.3.6",
+  "date": "2026-05-23",
+  "starting_head": "ec0a144",
+  "initial_runtime": {
+    "tmux": "aquagenesys-v035",
+    "pid": 310877,
+    "port": 8770,
+    "frame_schema": "aquagenesys.frame.v3",
+    "state_schema": "aquagenesys.state.v5"
+  },
+  "implemented": {
+    "state_schema": "aquagenesys.state.v6",
+    "frame_schema": "aquagenesys.frame.v3",
+    "dashboard_schema": "aquagenesys.dashboard.v1",
+    "right_sidebar": "focused fish inspector and compare mode",
+    "below_puddle": "narrator, lifecycle dashboard, lineage/policy/teaching observatory, timeline, diagnostics",
+    "narrator": "deterministic rule-based summary grounded in telemetry",
+    "compare_mode": "click selects fish A; ctrl/cmd-click selects fish B"
+  },
+  "hard_rules": {
+    "frame_lightweight": true,
+    "model_required_for_narrator": false,
+    "simulation_mechanics_changed": false,
+    "full_lineage_tree_deferred": true
+  },
+  "validation": {
+    "pytest": "47 passed",
+    "eval_check": "pass",
+    "eval_runner": "pass",
+    "lint": "pass",
+    "codex_standards": "9 passed",
+    "node_check": "pass",
+    "browser_smoke": "v0.3.6 loaded, canvas nonblank, narrator/dashboard visible, inspector and compare work, no console errors, mobile no overflow"
+  },
+  "known_limitations": [
+    "No full genealogy tree yet.",
+    "Timeline filtering is not interactive yet.",
+    "Compare mode uses visible state and proximity hints only."
+  ],
+  "recommended_next_patch": "v0.3.7 lineage/policy genealogy explorer"
+}

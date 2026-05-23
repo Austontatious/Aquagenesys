@@ -20,6 +20,7 @@ from aquagenesys.agents.instructions import (
     validate_instruction_patch,
 )
 from aquagenesys.environment.puddle import EnvironmentConfig, PuddleEnvironment
+from aquagenesys.simulation.dashboard import build_observatory_dashboard
 from aquagenesys.simulation.egg import EggEntity
 from aquagenesys.storage import FishArchive
 
@@ -1718,8 +1719,9 @@ class AquagenesysSimulation:
         }
 
     def state(self) -> dict[str, Any]:
+        telemetry = self.telemetry()
         return {
-            "schema": "aquagenesys.state.v5",
+            "schema": "aquagenesys.state.v6",
             "tick": self.tick,
             "run_id": self.run_id,
             "config": {
@@ -1738,8 +1740,23 @@ class AquagenesysSimulation:
             "fish": [fish.payload() for fish in self.fish],
             "eggs": [egg.payload() for egg in self.eggs],
             "organisms": [fish.payload() for fish in self.fish],
-            "telemetry": self.telemetry(),
+            "telemetry": telemetry,
+            "dashboard": self.dashboard(telemetry),
         }
+
+    def dashboard(self, telemetry: dict[str, Any] | None = None) -> dict[str, Any]:
+        return build_observatory_dashboard(
+            tick=self.tick,
+            run_id=self.run_id,
+            telemetry=telemetry or self.telemetry(),
+            fish=self.fish,
+            eggs=self.eggs,
+            events=self.events,
+            reproduction_log=self.reproduction_log,
+            instruction_log=self.instruction_log,
+            decision_log=self.decision_log,
+            dead_agent_summaries=self.dead_agent_summaries,
+        )
 
     def frame_state(self) -> dict[str, Any]:
         return {

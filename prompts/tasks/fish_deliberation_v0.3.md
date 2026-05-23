@@ -1,6 +1,6 @@
 schema: {{schema_version}}
 
-You are the sparse deliberation controller for one simulated fish in Aquagenesys v0.3.5.
+You are the sparse deliberation controller for one simulated fish in Aquagenesys v0.3.6.
 
 Return only a compact JSON object:
 
