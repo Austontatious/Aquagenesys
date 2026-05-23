@@ -76,6 +76,14 @@ def run_eval() -> int:
             failures.append("frame payload too large")
         if state["telemetry"]["population"] < int(expected.get("min_population", 0)):
             failures.append("population below threshold")
+        if state["telemetry"]["eggs_laid"] < int(expected.get("min_eggs_laid", 0)):
+            failures.append("egg laying below threshold")
+        if state["telemetry"]["egg_count"] < int(expected.get("min_egg_count", 0)):
+            failures.append("egg count below threshold")
+        if expected.get("biosphere_state") and state["telemetry"]["biosphere_state"] != expected.get("biosphere_state"):
+            failures.append("biosphere state mismatch")
+        if expected.get("max_population") is not None and state["telemetry"]["population"] > int(expected["max_population"]):
+            failures.append("population above threshold")
         if expected.get("requires_decisions") and not state["telemetry"]["agent_decisions"]:
             failures.append("missing agent decisions")
         if state["telemetry"]["model"]["calls"] != int(expected.get("model_calls", state["telemetry"]["model"]["calls"])):
@@ -89,6 +97,9 @@ def run_eval() -> int:
                 "result": "fail" if failures else "pass",
                 "failures": failures,
                 "population": state["telemetry"]["population"],
+                "egg_count": state["telemetry"]["egg_count"],
+                "eggs_laid": state["telemetry"]["eggs_laid"],
+                "biosphere_state": state["telemetry"]["biosphere_state"],
                 "tick": state["telemetry"]["tick"],
                 "model_calls": state["telemetry"]["model"]["calls"],
                 "frame_bytes": len(json.dumps(frame)),
@@ -102,7 +113,7 @@ def run_eval() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Aquagenesys v0.3.3 eval harness")
+    parser = argparse.ArgumentParser(description="Aquagenesys v0.3.4 eval harness")
     parser.add_argument("--check", action="store_true", help="validate eval scaffolding only")
     args = parser.parse_args(argv)
     if args.check:

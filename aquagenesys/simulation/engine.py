@@ -11,6 +11,7 @@ from typing import Any
 from aquagenesys.agents import Action, FishAgent, FishDeliberationController, FishDeliberationResult, FishGenome, Perception
 from aquagenesys.agents.fish import clamp, unit, wrap_angle
 from aquagenesys.environment.puddle import EnvironmentConfig, PuddleEnvironment
+from aquagenesys.simulation.egg import EggEntity
 from aquagenesys.storage import FishArchive
 
 
@@ -44,11 +45,20 @@ class SimulationConfig:
     debug_founder_reseed_after_ticks: int = 80
 
 
+@dataclass
+class ReproductionResult:
+    newborns: list[FishAgent]
+    eggs: list[EggEntity]
+    reason: str
+    mode: str = "none"
+
+
 class AquagenesysSimulation:
     def __init__(self, config: SimulationConfig | None = None) -> None:
         self.config = config or SimulationConfig()
         self.speed = 1
         self._initial_seed = self.config.seed
+        self._run_sequence = 0
         self._controller: FishDeliberationController | None = None
         self._model_executor: ThreadPoolExecutor | None = None
         self._pending_model_calls: dict[int, Future[FishDeliberationResult]] = {}
@@ -57,16 +67,28 @@ class AquagenesysSimulation:
     def reset(self) -> None:
         self._cancel_pending_model_calls()
         self.rng = Random(self._initial_seed)
+        self._run_sequence += 1
+        self.run_id = f"seed-{self._initial_seed}-run-{self._run_sequence}"
         self.tick = 0
         self.next_fish_id = 1
+        self.next_egg_id = 1
         self.next_lineage_id = 1
         self.low_population_ticks = 0
         self.dead_puddle = False
+        self.biosphere_state = "active"
+        self._dormant_announced = False
         self.decision_log: deque[dict[str, Any]] = deque(maxlen=36)
         self.events: deque[dict[str, Any]] = deque(maxlen=36)
+        self.reproduction_log: deque[dict[str, Any]] = deque(maxlen=48)
         self.births = 0
         self.births_reproduction = 0
+        self.births_hatched = 0
         self.births_reseed_debug = 0
+        self.eggs_laid = 0
+        self.eggs_hatched = 0
+        self.egg_deaths = 0
+        self.egg_deaths_by_cause: Counter[str] = Counter()
+        self.reproduction_gate_reasons: Counter[str] = Counter()
         self.deaths_by_cause: Counter[str] = Counter()
         self.extinction_events = 0
         self.recovery_events = 0
@@ -81,6 +103,7 @@ class AquagenesysSimulation:
         self.model_intents_applied = 0
         self.last_model_error = ""
         self._queued_deliberations_this_tick = 0
+        self._completed_model_results_this_tick = 0
         self.environment = PuddleEnvironment(
             EnvironmentConfig(
                 width=self.config.width,
@@ -93,9 +116,21 @@ class AquagenesysSimulation:
         self.archive = FishArchive(
             state_path=archive_root / "fish_state.jsonl",
             memory_path=archive_root / "fish_memory.jsonl",
+            lifecycle_path=archive_root / "lifecycle_events.jsonl",
         )
         self.fish: list[FishAgent] = []
+        self.eggs: list[EggEntity] = []
         self._seed_founders(self.config.initial_population)
+        self.archive.write_lifecycle_event(
+            {
+                "run_id": self.run_id,
+                "tick": self.tick,
+                "event_type": "run_start",
+                "initial_population": self.config.initial_population,
+                "seed": self._initial_seed,
+                "archive_every_ticks": self.config.archive_every_ticks,
+            }
+        )
         self.initial_signature = self._reset_signature()
 
     def _reset_signature(self) -> tuple[object, ...]:
@@ -132,21 +167,28 @@ class AquagenesysSimulation:
     def step(self) -> None:
         self.tick += 1
         self.environment.update()
-        self._poll_model_results()
+        completed_deliberations = self._poll_model_results()
+        hatchlings = self._update_eggs()
+        if hatchlings:
+            remaining = max(0, self.config.max_population - len(self.fish))
+            self.fish.extend(hatchlings[:remaining])
+            for child in hatchlings[remaining:]:
+                self._recycle_dead(child, "density_limit")
         for signal in self.environment.event_signals:
             self._event(str(signal["kind"]), value=signal.get("value"))
         if not self.fish:
             self._debug_reseed_if_needed()
             if not self.fish:
-                self._handle_extinction()
+                self._handle_no_adults()
             self._archive_if_due()
             return
 
         self.environment.apply_population_pressure((fish.x, fish.y, fish.radius) for fish in self.fish)
-        deliberations_used = 0
+        deliberations_used = completed_deliberations
         self._queued_deliberations_this_tick = 0
         deaths: dict[int, str] = {}
         newborns: list[FishAgent] = []
+        new_eggs: list[EggEntity] = []
         shuffled = list(self.fish)
         self.rng.shuffle(shuffled)
         for fish in shuffled:
@@ -168,9 +210,11 @@ class AquagenesysSimulation:
                 delta_health=fish.health - before_health,
             )
             self._record_decision(fish, action, outcome)
-            child = self._maybe_reproduce(fish, perception)
-            if child is not None:
-                newborns.append(child)
+            result = self._maybe_reproduce(fish, perception)
+            if result.newborns:
+                newborns.extend(result.newborns)
+            if result.eggs:
+                new_eggs.extend(result.eggs)
             cause = self._death_cause(fish)
             if cause is not None:
                 deaths[fish.fish_id] = cause
@@ -189,9 +233,14 @@ class AquagenesysSimulation:
             if len(newborns) > remaining:
                 for child in newborns[remaining:]:
                     self._recycle_dead(child, "density_limit")
+        if new_eggs:
+            self.eggs.extend(new_eggs)
         self._debug_reseed_if_needed()
         if not self.fish:
-            self._handle_extinction()
+            self._handle_no_adults()
+        else:
+            self.dead_puddle = False
+            self.biosphere_state = "active"
         self._archive_if_due()
 
     def _seed_founders(self, count: int, *, birth_kind: str | None = None) -> None:
@@ -232,6 +281,8 @@ class AquagenesysSimulation:
                 self.births_reproduction += 1
         if count > 0:
             self.dead_puddle = False
+            self.biosphere_state = "active"
+            self._dormant_announced = False
 
     def _spawn_position(self, archetype: str) -> tuple[float, float]:
         for _ in range(200):
@@ -348,7 +399,8 @@ class AquagenesysSimulation:
                 continue
             count += 1
             dx, dy = unit(other.x - fish.x, other.y - fish.y)
-            if other.species_id == fish.species_id and distance < nearest_mate[2]:
+            compatible_mate = other.species_id == fish.species_id or other.genome.metabolism == fish.genome.metabolism
+            if compatible_mate and distance < nearest_mate[2]:
                 nearest_mate = (dx, dy, distance)
             if other.radius < fish.radius * 0.82 and distance < nearest_prey[2]:
                 nearest_prey = (dx, dy, distance)
@@ -437,7 +489,8 @@ class AquagenesysSimulation:
             )
         return self._model_executor
 
-    def _poll_model_results(self) -> None:
+    def _poll_model_results(self) -> int:
+        self._completed_model_results_this_tick = 0
         completed: list[tuple[int, Future[FishDeliberationResult]]] = []
         for fish_id, future in self._pending_model_calls.items():
             if future.done():
@@ -458,6 +511,7 @@ class AquagenesysSimulation:
                 fish.set_model_intent(action, ttl=self.config.model_intent_ttl)
                 self.model_successes += 1
                 self.model_intents_applied += 1
+                self._completed_model_results_this_tick += 1
                 self._event(
                     "model_deliberation",
                     fish_id=fish_id,
@@ -468,7 +522,9 @@ class AquagenesysSimulation:
                 continue
             self.model_failures += 1
             self.last_model_error = result.error or "invalid_action"
+            self._completed_model_results_this_tick += 1
             self._event("model_deliberation_failed", fish_id=fish_id, error=self.last_model_error)
+        return self._completed_model_results_this_tick
 
     def _fish_by_id(self, fish_id: int) -> FishAgent | None:
         for fish in self.fish:
@@ -620,25 +676,212 @@ class AquagenesysSimulation:
         hunter.fear = clamp(hunter.fear + 0.08)
         return True
 
-    def _maybe_reproduce(self, parent: FishAgent, perception: Perception) -> FishAgent | None:
+    def _maybe_reproduce(self, parent: FishAgent, perception: Perception) -> ReproductionResult:
+        gate = self._reproduction_gate(parent, perception)
+        if gate != "ready":
+            self._record_reproduction_gate(parent, gate, perception)
+            return ReproductionResult([], [], gate)
+
+        life = parent.life_history
+        has_mate = self._mate_contact(parent, perception)
+        parthenogenetic = False
+        if not has_mate:
+            if not self._parthenogenesis_triggered(parent, perception):
+                self._record_reproduction_gate(parent, "parthenogenesis_failed_rng", perception, mode="parthenogenesis")
+                return ReproductionResult([], [], "parthenogenesis_failed_rng", mode="parthenogenesis")
+            parthenogenetic = True
+        mode = "parthenogenesis" if parthenogenetic else "paired"
+        chance = parent.genome.reproduction_rate * perception.reproduction_score * 0.085
+        chance += max(0.0, parent.reproductive_drive - 0.34) * 0.070
+        chance += max(0.0, 10 - len(self.fish)) * 0.0035
+        if parthenogenetic:
+            chance *= 0.36 + parent.life_history.parthenogenesis_alleles * 0.22
+        if self.rng.random() > clamp(chance, 0.006, 0.34):
+            reason = "parthenogenesis_failed_rng" if parthenogenetic else "reproduction_failed_rng"
+            self._record_reproduction_gate(parent, reason, perception, mode=mode, chance=chance)
+            return ReproductionResult([], [], reason, mode=mode)
+
+        reserve = 18.0 + parent.genome.body_size * 6.0
+        available = max(0.0, parent.energy - reserve)
+        reproductive_energy = min(parent.energy - 22.0, available * life.offspring_investment)
+        if parthenogenetic:
+            reproductive_energy *= 0.74
+        if reproductive_energy < 4.8:
+            self._record_reproduction_gate(parent, "clutch_energy_too_low", perception, mode=mode)
+            return ReproductionResult([], [], "clutch_energy_too_low", mode=mode)
+
+        env_quality = clamp(perception.reproduction_score * 0.62 + parent.health * 0.22 + parent.energy / 110.0 * 0.16 - parent.stress * 0.14)
+        clutch_target = max(1, int(round(life.base_clutch_size * (0.45 + env_quality * 0.82))))
+        energy_limited = max(1, int(reproductive_energy / 4.2))
+        clutch_count = max(1, min(life.base_clutch_size + 3, clutch_target, energy_limited))
+        energy_per = reproductive_energy / clutch_count
+        if energy_per < 3.2:
+            self._record_reproduction_gate(parent, "clutch_energy_too_low", perception, mode=mode)
+            return ReproductionResult([], [], "clutch_energy_too_low", mode=mode)
+
+        newborns: list[FishAgent] = []
+        eggs: list[EggEntity] = []
+        parent.energy -= reproductive_energy + 2.2
+        parent.reproductive_drive = 0.08 if not parthenogenetic else 0.02
+        parent.reproduction_cooldown = life.reproduction_interval_ticks + (24 if parthenogenetic else 0)
+        parent.last_reproduction_tick = self.tick
+
+        for index in range(clutch_count):
+            lineage_id = parent.lineage_id
+            if not parthenogenetic and self.rng.random() < 0.036 + max(0.0, parent.stress - 0.42) * 0.04:
+                lineage_id = self.next_lineage_id
+                self.next_lineage_id += 1
+                self._event("lineage_split", parent=parent.fish_id, lineage=lineage_id)
+            genome = parent.genome.mutated(self.rng, lineage_id=None if lineage_id == parent.lineage_id else lineage_id)
+            if parthenogenetic:
+                genome = genome.mutated(self.rng)
+            if self._should_lay_egg(parent, perception, life, parthenogenetic, index):
+                eggs.append(self._create_egg(parent, genome, perception, energy_per, parthenogenetic=parthenogenetic))
+            elif len(self.fish) + len(newborns) < self.config.max_population:
+                newborns.append(self._create_child(parent, genome, perception, energy_per, parthenogenetic=parthenogenetic))
+
+        if not newborns and not eggs:
+            self._record_reproduction_gate(parent, "clutch_energy_too_low", perception, mode=mode)
+            return ReproductionResult([], [], "clutch_energy_too_low", mode=mode)
+
+        self.births += len(newborns)
+        self.births_reproduction += len(newborns)
+        self.eggs_laid += len(eggs)
+        reason = "egg_bank_deposited" if eggs and not newborns else "mixed_brood" if eggs else "live_birth"
+        parent.last_reproduction_gate = reason
+        self._record_reproduction_gate(
+            parent,
+            reason,
+            perception,
+            mode=mode,
+            offspring_count=len(newborns),
+            egg_count=len(eggs),
+            energy_cost=reproductive_energy,
+        )
+        if newborns:
+            for child in newborns:
+                self._event("birth", parent=parent.fish_id, child=child.fish_id, lineage=child.lineage_id, mode=mode)
+                self._archive_lifecycle_event(
+                    "live_birth",
+                    fish=parent,
+                    child=child,
+                    perception=perception,
+                    offspring_count=len(newborns),
+                    egg_count=len(eggs),
+                    reproduction_gate_result=reason,
+                )
+        if eggs:
+            self._event("egg_clutch", parent=parent.fish_id, eggs=len(eggs), lineage=parent.lineage_id, mode=mode)
+            for egg in eggs:
+                self._archive_lifecycle_event(
+                    "egg_laid",
+                    fish=parent,
+                    egg=egg,
+                    perception=perception,
+                    offspring_count=len(newborns),
+                    egg_count=len(eggs),
+                    reproduction_gate_result=reason,
+                )
+        return ReproductionResult(newborns, eggs, reason, mode=mode)
+
+    def _reproduction_gate(self, parent: FishAgent, perception: Perception) -> str:
         if len(self.fish) >= self.config.max_population:
-            return None
-        if parent.energy < 64.0 or parent.health < 0.58 or parent.reproductive_drive < 0.74:
-            return None
-        if perception.reproduction_score < 0.42 or perception.crowding > 0.76:
-            return None
-        chance = parent.genome.reproduction_rate * perception.reproduction_score * 0.035
-        if self.rng.random() > chance:
-            return None
-        lineage_id = parent.lineage_id
-        if self.rng.random() < 0.045 + max(0.0, parent.stress - 0.42) * 0.05:
-            lineage_id = self.next_lineage_id
-            self.next_lineage_id += 1
-            self._event("lineage_split", parent=parent.fish_id, lineage=lineage_id)
-        genome = parent.genome.mutated(self.rng, lineage_id=None if lineage_id == parent.lineage_id else lineage_id)
+            return "overcrowded"
+        life = parent.life_history
+        if parent.age < life.maturity_age_ticks:
+            return "not_mature"
+        if parent.age > life.fertility_end_age_ticks:
+            return "too_old_or_low_fertility"
+        if parent.reproduction_cooldown > 0:
+            return "cooldown"
+        if parent.energy < 24.0 + parent.genome.body_size * 6.0:
+            return "low_energy"
+        if parent.health < 0.35:
+            return "low_health"
+        drive_threshold = 0.08 if parent.age > life.senescence_start_ticks else 0.12
+        if parent.reproductive_drive < drive_threshold:
+            return "reproductive_drive_too_low"
+        if perception.reproduction_score < 0.38:
+            return "bad_environment"
+        if perception.crowding > 0.90:
+            return "overcrowded"
+        if self._mate_contact(parent, perception):
+            return "ready"
+        if parent.life_history.parthenogenesis_alleles <= 0:
+            return "parthenogenesis_not_available"
+        if not self._parthenogenesis_pressure(parent, perception):
+            return "parthenogenesis_trigger_not_met"
+        return "ready"
+
+    def _mate_contact(self, parent: FishAgent, perception: Perception) -> bool:
+        if perception.nearest_mate[2] < max(14.0, parent.genome.sensory_range * 1.9):
+            return True
+        for other in self.fish:
+            if other.fish_id == parent.fish_id:
+                continue
+            if other.genome.metabolism != parent.genome.metabolism:
+                continue
+            if hypot(other.x - parent.x, other.y - parent.y) <= parent.genome.sensory_range * 2.2:
+                return True
+        return False
+
+    def _parthenogenesis_pressure(self, parent: FishAgent, perception: Perception) -> bool:
+        life = parent.life_history
+        no_contact = not self._mate_contact(parent, perception)
+        low_lineage = self._lineage_population(parent.lineage_id) <= 1
+        low_adults = len(self.fish) <= 3
+        late_fertility = parent.age >= int(life.senescence_start_ticks * 0.82)
+        healthy_enough = parent.energy > 50.0 and parent.health > 0.58
+        repeated_failure = parent.last_reproduction_gate in {"parthenogenesis_trigger_not_met", "parthenogenesis_failed_rng", "no_mate"}
+        return healthy_enough and no_contact and (low_lineage or low_adults or late_fertility or repeated_failure)
+
+    def _parthenogenesis_triggered(self, parent: FishAgent, perception: Perception) -> bool:
+        if parent.life_history.parthenogenesis_alleles <= 0:
+            return False
+        if not self._parthenogenesis_pressure(parent, perception):
+            return False
+        allele = parent.life_history.parthenogenesis_alleles
+        chance = 0.012 + allele * 0.048 + parent.life_history.parthenogenesis_bias * 0.10
+        if allele == 1 and parent.age < int(parent.life_history.senescence_start_ticks * 0.86):
+            chance *= 0.35
+        if allele >= 3:
+            chance *= 1.38
+        return self.rng.random() < clamp(chance, 0.004, 0.42)
+
+    def _should_lay_egg(
+        self,
+        parent: FishAgent,
+        perception: Perception,
+        life: object,
+        parthenogenetic: bool,
+        index: int,
+    ) -> bool:
+        egg_probability = 0.62
+        if getattr(life, "brood_strategy", "") == "guarded_brood":
+            egg_probability = 0.44
+        elif getattr(life, "brood_strategy", "") == "egg_clutch":
+            egg_probability = 0.82
+        egg_probability += getattr(life, "dormancy_bias", 0.0) * 0.16
+        egg_probability -= max(0.0, perception.reproduction_score - 0.72) * 0.12
+        if parthenogenetic:
+            egg_probability += 0.18
+        if index > 0:
+            egg_probability += 0.06
+        return self.rng.random() < clamp(egg_probability, 0.22, 0.96)
+
+    def _create_child(
+        self,
+        parent: FishAgent,
+        genome: FishGenome,
+        perception: Perception,
+        energy_per: float,
+        *,
+        parthenogenetic: bool,
+    ) -> FishAgent:
         dx = self.rng.uniform(-1.0, 1.0)
         dy = self.rng.uniform(-1.0, 1.0)
         dx, dy = unit(dx, dy)
+        viability = self._offspring_viability(parent, perception, energy_per, parthenogenetic=parthenogenetic)
         child = FishAgent(
             fish_id=self.next_fish_id,
             species_id=genome.species_id,
@@ -646,14 +889,14 @@ class AquagenesysSimulation:
             genome=genome,
             x=clamp(parent.x + dx * (parent.radius + 1.3), 0.8, self.config.width - 1.8),
             y=clamp(parent.y + dy * (parent.radius + 1.3), 0.8, self.config.height - 1.8),
-            vx=parent.vx * 0.24 + dx * 0.12,
-            vy=parent.vy * 0.24 + dy * 0.12,
-            energy=34.0 + self.rng.uniform(0.0, 8.0),
-            hunger=0.34,
-            fear=parent.fear * 0.60,
-            stress=parent.stress * 0.50,
-            health=clamp(parent.health * 0.92 + 0.05),
-            reproductive_drive=0.02,
+            vx=parent.vx * 0.20 + dx * 0.10,
+            vy=parent.vy * 0.20 + dy * 0.10,
+            energy=max(16.0, min(44.0, 16.0 + energy_per * 2.4)),
+            hunger=0.38,
+            fear=parent.fear * 0.62,
+            stress=parent.stress * 0.55,
+            health=clamp(0.44 + viability * 0.52),
+            reproductive_drive=0.01,
             generation=parent.generation + 1,
             parent_ids=(parent.fish_id,),
             model_budget=max(1, self.config.fish_model_budget - 1),
@@ -662,31 +905,274 @@ class AquagenesysSimulation:
             locomotion_speed=hypot(parent.vx, parent.vy),
         )
         self.next_fish_id += 1
-        parent.energy -= 18.0
-        parent.reproductive_drive = 0.12
-        self.births += 1
-        self.births_reproduction += 1
-        self._event("birth", parent=parent.fish_id, child=child.fish_id, lineage=child.lineage_id)
         return child
+
+    def _create_egg(
+        self,
+        parent: FishAgent,
+        genome: FishGenome,
+        perception: Perception,
+        energy_per: float,
+        *,
+        parthenogenetic: bool,
+    ) -> EggEntity:
+        life = genome.life_history()
+        dx = self.rng.uniform(-1.0, 1.0)
+        dy = self.rng.uniform(-1.0, 1.0)
+        dx, dy = unit(dx, dy)
+        viability = self._offspring_viability(parent, perception, energy_per, parthenogenetic=parthenogenetic)
+        dormant = self.rng.random() < clamp(life.dormancy_bias * 0.38 + max(0.0, 0.54 - perception.reproduction_score) * 0.32)
+        egg = EggEntity(
+            egg_id=self.next_egg_id,
+            parent_ids=(parent.fish_id,),
+            lineage_id=genome.lineage_id,
+            species_id=genome.species_id,
+            genome=genome,
+            generation=parent.generation + 1,
+            created_tick=self.tick,
+            age_ticks=0,
+            gestation_ticks=max(42, int(life.maturity_age_ticks * 0.18 + self.rng.randint(18, 84))),
+            viability=viability,
+            energy_investment=energy_per,
+            x=clamp(parent.x + dx * (parent.radius + 0.9), 0.8, self.config.width - 1.8),
+            y=clamp(parent.y + dy * (parent.radius + 0.9), 0.8, self.config.height - 1.8),
+            dormant=dormant,
+            dormancy_strategy=life.egg_strategy,
+            hatch_sensitivity=life.hatch_sensitivity,
+            decay_rate=1.0 / max(220.0, life.egg_viability_ticks),
+            parthenogenetic=parthenogenetic,
+            state="dormant" if dormant else "gestating",
+        )
+        self.next_egg_id += 1
+        return egg
+
+    def _offspring_viability(self, parent: FishAgent, perception: Perception, energy_per: float, *, parthenogenetic: bool) -> float:
+        life = parent.life_history
+        viability = 0.28 + min(0.34, energy_per / 26.0) + perception.reproduction_score * 0.25 + parent.health * 0.16
+        viability -= parent.stress * 0.16
+        viability -= life.mutation_load * 0.12
+        if parthenogenetic:
+            viability -= 0.10 + life.parthenogenesis_alleles * 0.015
+        return clamp(viability, 0.08, 0.98)
+
+    def _lineage_population(self, lineage_id: int) -> int:
+        return sum(1 for fish in self.fish if fish.lineage_id == lineage_id)
 
     def _death_cause(self, fish: FishAgent) -> str | None:
         if fish.energy <= 0.0:
             return "starvation"
         if fish.health <= 0.0:
             return "environment"
-        if fish.age > 1600 + int(fish.genome.body_size * 260) and self.rng.random() < 0.012:
+        life = fish.life_history
+        if fish.age > life.expected_lifespan_ticks and self.rng.random() < 0.010:
+            return "age"
+        if fish.age > life.senescence_start_ticks and self.rng.random() < 0.0018 + max(0, fish.age - life.senescence_start_ticks) / 240000.0:
             return "age"
         if fish.stress > 0.84 and self.rng.random() < (fish.stress - 0.80) * 0.06:
             return "shock"
         return None
 
+    def _update_eggs(self) -> list[FishAgent]:
+        hatchlings: list[FishAgent] = []
+        active: list[EggEntity] = []
+        for egg in self.eggs:
+            if not egg.viable:
+                continue
+            egg.age_ticks += 1
+            sample = self.environment.sample(egg.x, egg.y)
+            life = egg.genome.life_history()
+            stress = sample.stress_score(
+                oxygen_need=egg.genome.oxygen_need * 0.82,
+                ph_preference=egg.genome.ph_preference,
+                temperature_preference=egg.genome.temperature_preference,
+                turbidity_tolerance=egg.genome.turbidity_tolerance * 1.12,
+                toxin_tolerance=egg.genome.toxin_tolerance,
+            )
+            decay = egg.decay_rate * (life.dormancy_decay_modifier if egg.dormant else 1.0)
+            egg.viability = clamp(egg.viability - decay - stress * 0.010 - max(0.0, sample.toxins - 0.34) * 0.018)
+            if egg.age_ticks > life.egg_viability_ticks and not egg.dormant:
+                egg.viability = clamp(egg.viability - 0.010)
+            if sample.toxins > 0.72 or sample.oxygen < 0.14:
+                egg.mark_dead("egg_died_environment")
+                self._record_egg_death(egg, sample.payload())
+                continue
+            if egg.viability <= 0.0:
+                egg.mark_dead("egg_died_decay")
+                self._record_egg_death(egg, sample.payload())
+                continue
+            if not egg.dormant and egg.age_ticks > egg.gestation_ticks * 2 and sample.reproduction < 0.30:
+                egg.mark_dormant()
+                self._event("egg_entered_dormancy", egg_id=egg.egg_id, lineage=egg.lineage_id)
+            if self._egg_should_hatch(egg, sample):
+                hatchling = self._hatch_egg(egg, sample.payload())
+                egg.mark_hatched()
+                hatchlings.append(hatchling)
+                continue
+            active.append(egg)
+        self.eggs = active
+        return hatchlings
+
+    def _egg_should_hatch(self, egg: EggEntity, sample: object) -> bool:
+        if egg.age_ticks < egg.gestation_ticks:
+            return False
+        hatch_score = clamp(
+            sample.reproduction * 0.44
+            + sample.oxygen * 0.18
+            + sample.food * 0.14
+            + sample.plankton * 0.10
+            - sample.toxins * 0.28
+            - sample.population_pressure * 0.16
+        )
+        if hatch_score < 0.38:
+            if egg.dormant:
+                return False
+            return self.rng.random() < 0.006
+        low_density_bonus = 1.0
+        if len(self.fish) == 0:
+            low_density_bonus = 1.7
+        elif len(self.fish) < 6:
+            low_density_bonus = 1.35
+        lineage_bonus = 1.25 if self._lineage_population(egg.lineage_id) <= 1 else 1.0
+        dormant_penalty = 0.46 if egg.dormant else 1.0
+        chance = (0.018 + hatch_score * 0.055) * egg.hatch_sensitivity * low_density_bonus * lineage_bonus * dormant_penalty
+        return self.rng.random() < clamp(chance, 0.004, 0.22)
+
+    def _hatch_egg(self, egg: EggEntity, local_environment_sample: dict[str, float]) -> FishAgent:
+        dx = self.rng.uniform(-1.0, 1.0)
+        dy = self.rng.uniform(-1.0, 1.0)
+        dx, dy = unit(dx, dy)
+        child = FishAgent(
+            fish_id=self.next_fish_id,
+            species_id=egg.species_id,
+            lineage_id=egg.lineage_id,
+            genome=egg.genome,
+            x=clamp(egg.x + dx * 1.4, 0.8, self.config.width - 1.8),
+            y=clamp(egg.y + dy * 1.4, 0.8, self.config.height - 1.8),
+            vx=dx * 0.08,
+            vy=dy * 0.08,
+            energy=max(14.0, min(42.0, 12.0 + egg.energy_investment * 2.2)),
+            hunger=0.42,
+            fear=0.12,
+            stress=0.10,
+            health=clamp(0.38 + egg.viability * 0.54),
+            reproductive_drive=0.01,
+            generation=egg.generation,
+            parent_ids=egg.parent_ids,
+            model_budget=max(1, self.config.fish_model_budget - 1),
+        )
+        self.next_fish_id += 1
+        self.births += 1
+        self.births_hatched += 1
+        self.births_reproduction += 1
+        self.eggs_hatched += 1
+        if self.biosphere_state == "dormant":
+            self.recovery_events += 1
+            self.last_recovery_kind = "egg_hatch"
+        self.dead_puddle = False
+        self.biosphere_state = "active"
+        self._event("egg_hatched", egg_id=egg.egg_id, child=child.fish_id, lineage=egg.lineage_id)
+        self._archive_lifecycle_event(
+            "egg_hatched",
+            child=child,
+            egg=egg,
+            local_environment_sample=local_environment_sample,
+            reproduction_gate_result="egg_hatched",
+        )
+        return child
+
+    def _record_egg_death(self, egg: EggEntity, local_environment_sample: dict[str, float]) -> None:
+        self.egg_deaths += 1
+        self.egg_deaths_by_cause[egg.death_cause] += 1
+        self._event("egg_died", egg_id=egg.egg_id, cause=egg.death_cause, lineage=egg.lineage_id)
+        self._archive_lifecycle_event(
+            egg.death_cause,
+            egg=egg,
+            local_environment_sample=local_environment_sample,
+            reproduction_gate_result=egg.death_cause,
+        )
+
+    def _record_reproduction_gate(
+        self,
+        fish: FishAgent,
+        reason: str,
+        perception: Perception,
+        *,
+        mode: str = "none",
+        chance: float | None = None,
+        offspring_count: int = 0,
+        egg_count: int = 0,
+        energy_cost: float = 0.0,
+    ) -> None:
+        fish.last_reproduction_gate = reason
+        self.reproduction_gate_reasons[reason] += 1
+        entry = {
+            "tick": self.tick,
+            "fish_id": fish.fish_id,
+            "lineage": fish.lineage_id,
+            "species_id": fish.species_id,
+            "reason": reason,
+            "mode": mode,
+            "maturity_state": fish.maturity_state,
+            "fertility_state": fish.fertility_state,
+            "age": fish.age,
+            "energy": round(fish.energy, 2),
+            "health": round(fish.health, 3),
+            "reproductive_drive": round(fish.reproductive_drive, 3),
+            "reproduction_score": round(perception.reproduction_score, 3),
+            "offspring_count": offspring_count,
+            "egg_count": egg_count,
+            "energy_cost": round(energy_cost, 3),
+        }
+        if chance is not None:
+            entry["chance"] = round(chance, 4)
+        self.reproduction_log.append(entry)
+
+    def _archive_lifecycle_event(
+        self,
+        event_type: str,
+        *,
+        fish: FishAgent | None = None,
+        child: FishAgent | None = None,
+        egg: EggEntity | None = None,
+        perception: Perception | None = None,
+        local_environment_sample: dict[str, float] | None = None,
+        reproduction_gate_result: str = "",
+        death_cause: str = "",
+        offspring_count: int = 0,
+        egg_count: int = 0,
+    ) -> None:
+        source = fish or child
+        sample = local_environment_sample or (perception.sample if perception is not None else None)
+        payload: dict[str, object] = {
+            "run_id": self.run_id,
+            "tick": self.tick,
+            "event_type": event_type,
+            "fish_id": source.fish_id if source is not None else None,
+            "egg_id": egg.egg_id if egg is not None else None,
+            "child_id": child.fish_id if child is not None else None,
+            "lineage_id": (egg.lineage_id if egg is not None else source.lineage_id if source is not None else None),
+            "species_id": (egg.species_id if egg is not None else source.species_id if source is not None else None),
+            "age": source.age if source is not None else None,
+            "energy": round(source.energy, 3) if source is not None else None,
+            "health": round(source.health, 3) if source is not None else None,
+            "reproductive_drive": round(source.reproductive_drive, 3) if source is not None else None,
+            "maturity_state": source.maturity_state if source is not None else None,
+            "fertility_state": source.fertility_state if source is not None else None,
+            "life_history": (source.life_history.payload() if source is not None else egg.genome.life_history().payload() if egg is not None else None),
+            "local_environment_sample": sample,
+            "reproduction_gate_result": reproduction_gate_result,
+            "offspring_count": offspring_count,
+            "egg_count": egg_count,
+            "death_cause": death_cause,
+        }
+        self.archive.write_lifecycle_event(payload)
+
     def _recycle_dead(self, fish: FishAgent, cause: str) -> None:
         fish.alive = False
         self.deaths_by_cause[cause] += 1
-        self.environment.add("nutrients", fish.x, fish.y, min(0.75, 0.09 + fish.energy * 0.004 + fish.radius * 0.020))
-        self.environment.add("decomposition", fish.x, fish.y, min(0.55, 0.08 + fish.radius * 0.026))
-        self.environment.add("waste", fish.x, fish.y, 0.030)
+        self.environment.add_detritus(fish.x, fish.y, min(0.78, 0.12 + fish.energy * 0.004 + fish.radius * 0.030))
         self._event("death", fish_id=fish.fish_id, cause=cause, lineage=fish.lineage_id)
+        self._archive_lifecycle_event("death", fish=fish, death_cause=cause)
 
     def _debug_reseed_if_needed(self) -> None:
         if not self.config.debug_founder_reseed_enabled:
@@ -704,10 +1190,21 @@ class AquagenesysSimulation:
             self._seed_founders(count, birth_kind="debug_reseed")
             self.low_population_ticks = 0
 
+    def _handle_no_adults(self) -> None:
+        if self.viable_egg_count() > 0:
+            self.dead_puddle = False
+            self.biosphere_state = "dormant"
+            if not self._dormant_announced:
+                self._event("dormant_biosphere", viable_eggs=self.viable_egg_count())
+                self._dormant_announced = True
+            return
+        self._handle_extinction()
+
     def _handle_extinction(self) -> None:
         if self.dead_puddle:
             return
         self.dead_puddle = True
+        self.biosphere_state = "extinct"
         self.extinction_events += 1
         self.collapse_cause_guess = self._collapse_cause_guess()
         self._event("extinction", cause_guess=self.collapse_cause_guess)
@@ -724,6 +1221,18 @@ class AquagenesysSimulation:
             return "crowding_pressure"
         if abs(averages["ph"] - 0.52) > 0.26:
             return "ph_shift"
+        if self.reproduction_gate_reasons:
+            reason, count = self.reproduction_gate_reasons.most_common(1)[0]
+            if count > 8 and reason in {
+                "not_mature",
+                "too_old_or_low_fertility",
+                "low_energy",
+                "reproductive_drive_too_low",
+                "parthenogenesis_not_available",
+                "parthenogenesis_failed_rng",
+                "clutch_energy_too_low",
+            }:
+                return "reproduction_gate_failure"
         return "agent_lifecycle_pressure"
 
     def _record_decision(self, fish: FishAgent, action: Action, outcome: str) -> None:
@@ -751,8 +1260,11 @@ class AquagenesysSimulation:
             return
         if self.tick % self.config.archive_every_ticks != 0:
             return
-        self.archive.write_snapshot(tick=self.tick, fish=self.fish)
-        self.archive.write_decisions(tick=self.tick, fish=self.fish)
+        self.archive.write_snapshot(tick=self.tick, fish=self.fish, eggs=self.eggs, run_id=self.run_id)
+        self.archive.write_decisions(tick=self.tick, fish=self.fish, run_id=self.run_id)
+
+    def viable_egg_count(self) -> int:
+        return sum(1 for egg in self.eggs if egg.viable)
 
     def environmental_viability(self) -> tuple[float, int]:
         averages = self.environment.averages()
@@ -775,6 +1287,10 @@ class AquagenesysSimulation:
 
     def telemetry(self) -> dict[str, Any]:
         population = len(self.fish)
+        egg_count = len(self.eggs)
+        viable_egg_count = self.viable_egg_count()
+        dormant_egg_count = sum(1 for egg in self.eggs if egg.viable and egg.dormant)
+        lineage_count = len({fish.lineage_id for fish in self.fish} | {egg.lineage_id for egg in self.eggs if egg.viable})
         actions = Counter(entry["action"] for entry in self.decision_log)
         sources = Counter(entry["source"] for entry in self.decision_log)
         species = Counter(fish.species_id for fish in self.fish)
@@ -782,10 +1298,22 @@ class AquagenesysSimulation:
         viability_score, viable_cells = self.environmental_viability()
         return {
             "tick": self.tick,
+            "run_id": self.run_id,
+            "biosphere_state": self.biosphere_state,
+            "adult_population": population,
             "population": population,
+            "egg_count": egg_count,
+            "viable_egg_count": viable_egg_count,
+            "dormant_egg_count": dormant_egg_count,
+            "lineage_count": lineage_count,
             "births": self.births,
             "births_reproduction": self.births_reproduction,
+            "births_hatched": self.births_hatched,
             "births_reseed_debug": self.births_reseed_debug,
+            "eggs_laid": self.eggs_laid,
+            "eggs_hatched": self.eggs_hatched,
+            "egg_deaths": self.egg_deaths,
+            "egg_deaths_by_cause": dict(self.egg_deaths_by_cause),
             "deaths_by_cause": dict(self.deaths_by_cause),
             "extinction_events": self.extinction_events,
             "dead_puddle": self.dead_puddle,
@@ -812,6 +1340,8 @@ class AquagenesysSimulation:
             "decision_sources": dict(sources),
             "agent_decisions": list(reversed(self.decision_log))[:16],
             "recent_events": list(reversed(self.events))[:16],
+            "recent_reproduction_events": list(reversed(self.reproduction_log))[:16],
+            "reproduction_gate_reasons": dict(self.reproduction_gate_reasons.most_common(12)),
             "model": {
                 "enabled": self.config.deliberation_enabled,
                 "base_url": self.config.llm_base_url,
@@ -837,8 +1367,9 @@ class AquagenesysSimulation:
 
     def state(self) -> dict[str, Any]:
         return {
-            "schema": "aquagenesys.state.v3",
+            "schema": "aquagenesys.state.v4",
             "tick": self.tick,
+            "run_id": self.run_id,
             "config": {
                 "seed": self._initial_seed,
                 "speed": self.speed,
@@ -851,14 +1382,16 @@ class AquagenesysSimulation:
             },
             "environment": self.environment.payload(),
             "fish": [fish.payload() for fish in self.fish],
+            "eggs": [egg.payload() for egg in self.eggs],
             "organisms": [fish.payload() for fish in self.fish],
             "telemetry": self.telemetry(),
         }
 
     def frame_state(self) -> dict[str, Any]:
         return {
-            "schema": "aquagenesys.frame.v1",
+            "schema": "aquagenesys.frame.v2",
             "tick": self.tick,
+            "run_id": self.run_id,
             "config": {
                 "seed": self._initial_seed,
                 "speed": self.speed,
@@ -870,15 +1403,29 @@ class AquagenesysSimulation:
                 "signature": list(self.environment.signature),
             },
             "fish": [fish.frame_payload() for fish in self.fish],
+            "eggs": [egg.payload(compact=True) for egg in self.eggs[:160]],
             "telemetry": {
                 "tick": self.tick,
+                "run_id": self.run_id,
+                "biosphere_state": self.biosphere_state,
+                "adult_population": len(self.fish),
                 "population": len(self.fish),
+                "egg_count": len(self.eggs),
+                "viable_egg_count": self.viable_egg_count(),
+                "dormant_egg_count": sum(1 for egg in self.eggs if egg.viable and egg.dormant),
+                "lineage_count": len({fish.lineage_id for fish in self.fish} | {egg.lineage_id for egg in self.eggs if egg.viable}),
+                "births": self.births,
+                "eggs_laid": self.eggs_laid,
+                "eggs_hatched": self.eggs_hatched,
+                "egg_deaths": self.egg_deaths,
                 "dead_puddle": self.dead_puddle,
                 "average_health": round(sum(fish.health for fish in self.fish) / max(1, len(self.fish)), 3),
                 "average_stress": round(sum(fish.stress for fish in self.fish) / max(1, len(self.fish)), 3),
+                "reproduction_gate_reasons": dict(self.reproduction_gate_reasons.most_common(8)),
                 "decision_sources": dict(Counter(entry["source"] for entry in self.decision_log)),
                 "agent_decisions": list(reversed(self.decision_log))[:8],
                 "recent_events": list(reversed(self.events))[:8],
+                "recent_reproduction_events": list(reversed(self.reproduction_log))[:8],
                 "model": {
                     "enabled": self.config.deliberation_enabled,
                     "model": self.config.llm_model,

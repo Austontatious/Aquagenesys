@@ -1,0 +1,66 @@
+{
+  "version": "0.3.4",
+  "date": "2026-05-23",
+  "initial_state": {
+    "branch": "main",
+    "starting_head": "d2d2783",
+    "v032_committed": true,
+    "v033_committed": true,
+    "working_tree_dirty_before_work": false,
+    "viewer_running_before_work": true,
+    "viewer_port": 8770,
+    "viewer_reported_schema_before_work": "aquagenesys.frame.v1"
+  },
+  "pre_patch_reproduction": {
+    "eggs_existed": false,
+    "embryos_existed": false,
+    "parent_death_preserved_eggs": false,
+    "spawned_live_fish_immediately": true,
+    "final_singleton_recovery_path": false,
+    "run_id_archive_segmentation": false
+  },
+  "implemented": {
+    "life_history_profile": true,
+    "brood_clutch_reproduction": true,
+    "egg_entity": true,
+    "dormant_egg_bank": true,
+    "parthenogenesis_locus": true,
+    "reproduction_gate_telemetry": true,
+    "detritus_rebound": true,
+    "archive_run_id": true,
+    "collapse_segmentation_helper": true
+  },
+  "schemas": {
+    "state": "aquagenesys.state.v4",
+    "frame": "aquagenesys.frame.v2"
+  },
+  "validation": {
+    "pytest_tests": "35 passed",
+    "eval_check": "passed",
+    "eval_runner": "passed",
+    "make_lint": "passed",
+    "codex_standards": "9 passed",
+    "node_check": "passed",
+    "browser_smoke": {
+      "url": "http://127.0.0.1:8771",
+      "title": "Aquagenesys v0.3.4",
+      "canvas_nonblank": true,
+      "lifecycle_metrics_visible": true,
+      "fish_inspector_click": true,
+      "console_errors": 0,
+      "mobile_horizontal_overflow": false
+    }
+  },
+  "runtime_after_work": {
+    "smoke_tmux_session": "aquagenesys-v034",
+    "smoke_port": 8771,
+    "existing_v033_port": 8770
+  },
+  "known_limitations": [
+    "Mate compatibility is heuristic and metabolism-based.",
+    "Eggs model dormancy and viability but not detailed embryology.",
+    "Parthenogenesis tradeoffs use viability and mutation load rather than a full immune system.",
+    "The viewer does not yet show a full lineage tree."
+  ],
+  "v035_roadmap": "Bounded offspring instruction inheritance and teaching, with system validation and environmental selection."
+}

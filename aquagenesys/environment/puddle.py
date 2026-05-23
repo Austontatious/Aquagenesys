@@ -309,26 +309,32 @@ class PuddleEnvironment:
                     self.fields["oxygen"][y][x]
                     + self.config.regeneration_rate * (self.config.oxygenation * (0.18 + light * 0.44 + plankton * 0.26))
                     - waste * 0.010
-                    - decomposition * 0.004
+                    - decomposition * 0.005
                 )
                 self.fields["nutrients"][y][x] = clamp(
                     nutrients
-                    + self.config.regeneration_rate * (0.10 + substrate * 0.20 + decomposition * 0.34)
+                    + self.config.regeneration_rate * (0.10 + substrate * 0.20 + decomposition * 0.48)
                     - plankton * 0.006
                     - self.fields["food"][y][x] * 0.003
                 )
                 self.fields["plankton"][y][x] = clamp(
-                    plankton + (light * nutrients * 0.016) - self.fields["turbidity"][y][x] * 0.004 - toxins * 0.006
+                    plankton
+                    + (light * nutrients * 0.016)
+                    + max(0.0, decomposition - 0.12) * light * 0.004
+                    - self.fields["turbidity"][y][x] * 0.004
+                    - toxins * 0.006
                 )
                 self.fields["food"][y][x] = clamp(
                     self.fields["food"][y][x] * 0.996
                     + plankton * 0.006
                     + nutrients * (0.003 + shelter * 0.002)
-                    + decomposition * 0.002
+                    + decomposition * 0.004
                 )
                 self.fields["waste"][y][x] = clamp(waste * 0.990 + self.fields["population_pressure"][y][x] * 0.0015)
-                self.fields["decomposition"][y][x] = clamp(decomposition * 0.994 + waste * 0.006 + depth * 0.001)
-                self.fields["toxins"][y][x] = clamp(toxins * 0.996 + waste * self.config.toxin_level * 0.002)
+                self.fields["decomposition"][y][x] = clamp(decomposition * 0.992 + waste * 0.008 + depth * 0.001)
+                self.fields["toxins"][y][x] = clamp(
+                    toxins * 0.996 + waste * self.config.toxin_level * 0.002 + max(0.0, decomposition - 0.72) * 0.0016
+                )
                 self.fields["turbidity"][y][x] = clamp(
                     self.fields["turbidity"][y][x] * 0.997 + waste * 0.003 + abs(self.fields["current_x"][y][x]) * 0.006
                 )
@@ -420,6 +426,17 @@ class PuddleEnvironment:
     def add(self, field_name: str, x: float, y: float, amount: float) -> None:
         ix, iy = self._index(x, y)
         self.fields[field_name][iy][ix] = clamp(self.fields[field_name][iy][ix] + amount)
+
+    def add_detritus(self, x: float, y: float, amount: float) -> None:
+        ix, iy = self._index(x, y)
+        amount = max(0.0, amount)
+        for yy in range(max(0, iy - 1), min(self.height, iy + 2)):
+            for xx in range(max(0, ix - 1), min(self.width, ix + 2)):
+                distance = abs(xx - ix) + abs(yy - iy)
+                local = amount / (1.0 + distance)
+                self.fields["decomposition"][yy][xx] = clamp(self.fields["decomposition"][yy][xx] + local * 0.48)
+                self.fields["nutrients"][yy][xx] = clamp(self.fields["nutrients"][yy][xx] + local * 0.30)
+                self.fields["waste"][yy][xx] = clamp(self.fields["waste"][yy][xx] + local * 0.12)
 
     def is_obstacle(self, x: float, y: float) -> bool:
         ix, iy = self._index(x, y)

@@ -121,6 +121,7 @@ function applyState(state) {
     config: state.config,
     environment: { width: state.environment.width, height: state.environment.height, signature: state.environment.signature },
     fish: state.fish || state.organisms || [],
+    eggs: state.eggs || [],
     telemetry: state.telemetry,
   });
   updateTelemetry(state.telemetry);
@@ -145,9 +146,20 @@ async function pollFrame() {
 
 function updateTelemetry(telemetry) {
   if (!telemetry) return;
-  document.getElementById("puddleState").hidden = !telemetry.dead_puddle;
+  const puddleState = document.getElementById("puddleState");
+  puddleState.hidden = telemetry.biosphere_state === "active";
+  puddleState.textContent =
+    telemetry.biosphere_state === "dormant"
+      ? "DORMANT BIOSPHERE - viable egg bank"
+      : "DEAD PUDDLE - chemistry still running";
   document.getElementById("tick").textContent = telemetry.tick;
-  document.getElementById("population").textContent = telemetry.population;
+  document.getElementById("population").textContent = telemetry.adult_population ?? telemetry.population;
+  document.getElementById("eggCount").textContent = telemetry.egg_count ?? 0;
+  document.getElementById("viableEggs").textContent = telemetry.viable_egg_count ?? 0;
+  document.getElementById("dormantEggs").textContent = telemetry.dormant_egg_count ?? 0;
+  document.getElementById("births").textContent = telemetry.births ?? 0;
+  document.getElementById("eggsHatched").textContent = telemetry.eggs_hatched ?? 0;
+  document.getElementById("lineages").textContent = telemetry.lineage_count ?? 0;
   document.getElementById("health").textContent = Number(telemetry.average_health || 0).toFixed(2);
   document.getElementById("stress").textContent = Number(telemetry.average_stress || 0).toFixed(2);
   document.getElementById("modelCalls").textContent = telemetry.model?.calls ?? 0;
@@ -157,6 +169,14 @@ function updateTelemetry(telemetry) {
     `${item.source}: ${item.outcome}`,
   ]);
   fillList("events", telemetry.recent_events || [], (item) => [eventLabel(item), eventDetail(item)]);
+  fillList("reproduction", telemetry.recent_reproduction_events || [], (item) => [
+    `${item.tick} #${item.fish_id ?? "-"} ${String(item.reason || item.mode || "").replaceAll("_", " ")}`,
+    item.egg_count ? `${item.egg_count} eggs` : item.offspring_count ? `${item.offspring_count} born` : item.fertility_state || "",
+  ]);
+  fillList("gates", Object.entries(telemetry.reproduction_gate_reasons || {}), (item) => [
+    String(item[0]).replaceAll("_", " "),
+    item[1],
+  ]);
   fillList("clusters", telemetry.species_clusters || [], (item) => [item.label, `${item.size} ${item.metabolism}`]);
   fillList("deaths", Object.entries(telemetry.deaths_by_cause || {}), (item) => [item[0], item[1]]);
 }
@@ -167,6 +187,10 @@ function eventLabel(event) {
 
 function eventDetail(event) {
   if (event.kind === "birth") return `#${event.child}`;
+  if (event.kind === "egg_clutch") return `${event.eggs} eggs`;
+  if (event.kind === "egg_hatched") return `#${event.child}`;
+  if (event.kind === "egg_died") return event.cause || "";
+  if (event.kind === "dormant_biosphere") return `${event.viable_eggs} viable eggs`;
   if (event.kind === "death") return event.cause || "";
   if (event.kind === "model_deliberation_queued") return `pending ${event.pending}`;
   if (event.kind === "model_deliberation") return `${event.action} ttl ${event.ttl}`;
@@ -247,6 +271,7 @@ function render() {
   const sy = rect.height / env.height;
   drawShelters(latestEnvironment?.shelter_centers || [], sx, sy);
   const fishList = interpolatedFish(performance.now());
+  drawEggs(frame.eggs || [], sx, sy);
   drawFish(fishList, sx, sy);
   updateInspector();
   if (frame.telemetry?.dead_puddle) {
@@ -388,6 +413,25 @@ function drawFish(fishList, sx, sy) {
     }
     ctx.restore();
   }
+}
+
+function drawEggs(eggs, sx, sy) {
+  ctx.save();
+  for (const egg of eggs) {
+    if (egg.state === "dead" || egg.state === "hatched") continue;
+    const x = egg.x * sx;
+    const y = egg.y * sy;
+    const alpha = Math.max(0.18, Math.min(0.72, egg.viability || 0.4));
+    const radius = Math.max(1.6, Math.min(4.8, 1.4 + (egg.energy_investment || 4) * 0.12));
+    ctx.fillStyle = egg.dormant ? `rgba(205, 178, 124, ${alpha})` : `rgba(220, 230, 170, ${alpha})`;
+    ctx.strokeStyle = egg.parthenogenetic ? "rgba(255, 220, 240, 0.62)" : "rgba(40, 35, 24, 0.28)";
+    ctx.lineWidth = egg.parthenogenetic ? 1.2 : 0.6;
+    ctx.beginPath();
+    ctx.ellipse(x, y, radius * 1.25, radius * 0.78, ((egg.egg_id || 1) % 9) * 0.3, 0, TAU);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function locomotionFor(fish) {
@@ -673,6 +717,13 @@ function updateInspector() {
   document.getElementById("fishTraits").textContent = `fin ${Number(phenotype.fin_span).toFixed(2)} camo ${Number(phenotype.camouflage).toFixed(2)}`;
   const locomotion = locomotionFor(fish);
   document.getElementById("fishMotion").textContent = `spd ${Number(locomotion.speed).toFixed(2)} turn ${Number(locomotion.turn_rate).toFixed(2)}`;
+  const life = fish.life_history || {};
+  document.getElementById("fishLifecycle").textContent =
+    `${fish.maturity_state || "-"} / ${fish.fertility_state || "-"} clutch ${life.base_clutch_size ?? "-"}`;
+  document.getElementById("fishRepro").textContent =
+    `cool ${fish.reproduction_cooldown ?? 0} gate ${String(fish.last_reproduction_gate || "-").replaceAll("_", " ")}`;
+  document.getElementById("fishEggTraits").textContent =
+    `dorm ${Number(life.dormancy_bias || 0).toFixed(2)} parth ${life.parthenogenesis_alleles ?? 0}`;
   document.getElementById("fishDecision").textContent = `${fish.decision.source}: ${fish.decision.kind}`;
   document.getElementById("fishIntent").textContent = fish.active_intent
     ? `${fish.active_intent.kind} ttl ${fish.model_intent_ttl}`

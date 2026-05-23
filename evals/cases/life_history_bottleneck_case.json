@@ -1,12 +1,12 @@
 {
-  "name": "v034-agent-fish-smoke",
+  "name": "v034-life-history-bottleneck",
   "input": {
-    "seed": 101,
-    "width": 34,
-    "height": 22,
-    "initial_population": 10,
-    "max_population": 32,
-    "ticks": 18,
+    "seed": 134,
+    "width": 36,
+    "height": 24,
+    "initial_population": 6,
+    "max_population": 28,
+    "ticks": 620,
     "deliberation_enabled": false
   },
   "expected": {

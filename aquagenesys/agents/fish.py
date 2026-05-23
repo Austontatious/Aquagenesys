@@ -6,6 +6,8 @@ from math import atan2, hypot, pi
 from random import Random
 from typing import Any
 
+from aquagenesys.agents.life_history import LifeHistoryProfile, derive_life_history
+
 
 def clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
@@ -78,6 +80,11 @@ class FishGenome:
     camouflage: float
     eye_scale: float
     barbel_length: float
+    dormancy_bias: float
+    egg_viability_ticks: int
+    parthenogenesis_alleles: int
+    parthenogenesis_bias: float
+    mutation_load: float
 
     @classmethod
     def founder(cls, rng: Random, *, lineage_id: int, archetype: str) -> "FishGenome":
@@ -200,6 +207,18 @@ class FishGenome:
         }[archetype]
         jitter = lambda value, spread=0.08: clamp(value + rng.uniform(-spread, spread), 0.02, 1.25)
         species_id = f"{archetype}-{lineage_id:03d}"
+        dormant_base = {
+            "silt_grazer": 0.62,
+            "glass_filter": 0.76,
+            "mud_stalker": 0.28,
+            "reed_sprinter": 0.44,
+        }[archetype]
+        allele_roll = rng.random()
+        parthenogenesis_alleles = 0
+        if archetype in {"silt_grazer", "glass_filter"} and allele_roll < 0.16:
+            parthenogenesis_alleles = 1
+        elif archetype == "reed_sprinter" and allele_roll < 0.08:
+            parthenogenesis_alleles = 1
         return cls(
             archetype=archetype,
             species_id=species_id,
@@ -236,6 +255,11 @@ class FishGenome:
             camouflage=clamp(float(base["camouflage"]), 0.02, 1.25),
             eye_scale=clamp(float(base["eye_scale"]), 0.02, 1.25),
             barbel_length=clamp(float(base["barbel_length"]), 0.0, 1.25),
+            dormancy_bias=clamp(dormant_base + rng.uniform(-0.12, 0.12)),
+            egg_viability_ticks=rng.randint(480, 920),
+            parthenogenesis_alleles=parthenogenesis_alleles,
+            parthenogenesis_bias=clamp(0.02 + parthenogenesis_alleles * 0.08 + rng.uniform(-0.015, 0.025)),
+            mutation_load=clamp(rng.uniform(0.02, 0.10)),
         )
 
     def mutated(self, rng: Random, *, lineage_id: int | None = None) -> "FishGenome":
@@ -257,6 +281,10 @@ class FishGenome:
             fin_shape = rng.choice(["broad", "glass", "spiked", "swept", "short"])
         if rng.random() < 0.030:
             pattern = rng.choice(["speckled", "countershade", "saddle", "banded", "striped"])
+        parthenogenesis_alleles = self.parthenogenesis_alleles
+        if rng.random() < 0.018:
+            parthenogenesis_alleles += rng.choice([-1, 1])
+        parthenogenesis_alleles = max(0, min(4, parthenogenesis_alleles))
         next_lineage = self.lineage_id if lineage_id is None else lineage_id
         return FishGenome(
             archetype=self.archetype if lineage_id is None else metabolism,
@@ -294,7 +322,17 @@ class FishGenome:
             camouflage=m(self.camouflage, 0.045),
             eye_scale=m(self.eye_scale, 0.040),
             barbel_length=m(self.barbel_length, 0.055),
+            dormancy_bias=m(self.dormancy_bias, 0.055),
+            egg_viability_ticks=max(220, min(1900, int(self.egg_viability_ticks + rng.gauss(0.0, 52.0)))),
+            parthenogenesis_alleles=parthenogenesis_alleles,
+            parthenogenesis_bias=clamp(
+                self.parthenogenesis_bias + rng.gauss(0.0, 0.025) + (parthenogenesis_alleles - self.parthenogenesis_alleles) * 0.035
+            ),
+            mutation_load=clamp(self.mutation_load * 0.92 + abs(rng.gauss(0.0, 0.025))),
         )
+
+    def life_history(self) -> LifeHistoryProfile:
+        return derive_life_history(self)
 
     def phenotype_payload(self, *, compact: bool = False) -> dict[str, Any]:
         body_length = 1.22 + self.body_size * 0.52 + self.max_speed * 0.16
@@ -370,6 +408,12 @@ class FishGenome:
             "camouflage": round(self.camouflage, 3),
             "eye_scale": round(self.eye_scale, 3),
             "barbel_length": round(self.barbel_length, 3),
+            "dormancy_bias": round(self.dormancy_bias, 3),
+            "egg_viability_ticks": self.egg_viability_ticks,
+            "parthenogenesis_alleles": self.parthenogenesis_alleles,
+            "parthenogenesis_bias": round(self.parthenogenesis_bias, 3),
+            "mutation_load": round(self.mutation_load, 3),
+            "life_history": self.life_history().payload(),
             "phenotype": self.phenotype_payload(),
         }
 
@@ -530,6 +574,9 @@ class FishAgent:
     body_wave: float = 0.0
     locomotion_speed: float = 0.0
     stride: float = 0.0
+    reproduction_cooldown: int = 0
+    last_reproduction_tick: int = -1
+    last_reproduction_gate: str = "not_attempted"
     alive: bool = True
 
     @property
@@ -548,10 +595,24 @@ class FishAgent:
             return "breeding"
         return "viable"
 
+    @property
+    def life_history(self) -> LifeHistoryProfile:
+        return self.genome.life_history()
+
+    @property
+    def maturity_state(self) -> str:
+        return self.life_history.maturity_state(self.age)
+
+    @property
+    def fertility_state(self) -> str:
+        return self.life_history.fertility_state(self.age)
+
     def update_internal_state(self, perception: Perception) -> None:
         self.age += 1
         if self.deliberation_cooldown > 0:
             self.deliberation_cooldown -= 1
+        if self.reproduction_cooldown > 0:
+            self.reproduction_cooldown -= 1
         if self.model_intent_ttl > 0:
             self.model_intent_ttl -= 1
             if self.model_intent_ttl <= 0:
@@ -560,11 +621,11 @@ class FishAgent:
         self.stress = clamp(self.stress * 0.72 + perception.stress * 0.28)
         threat_signal = 1.0 - clamp(perception.nearest_threat[2] / max(1.0, self.genome.sensory_range))
         self.fear = clamp(self.fear * 0.80 + max(0.0, threat_signal - 0.25) * 0.28 + self.stress * 0.12)
-        if perception.resource_score > 0.48 and self.health > 0.58:
+        if perception.resource_score > 0.35 and self.health > 0.35 and self.fertility_state != "too_old":
             self.reproductive_drive = clamp(
                 self.reproductive_drive
-                + 0.006 * self.genome.reproduction_rate
-                + max(0.0, self.energy - 52.0) * 0.0007
+                + 0.014 * self.genome.reproduction_rate
+                + max(0.0, self.energy - 40.0) * 0.0010
             )
         else:
             self.reproductive_drive = clamp(self.reproductive_drive - 0.012)
@@ -696,6 +757,12 @@ class FishAgent:
             "health": round(self.health, 3),
             "reproductive_drive": round(self.reproductive_drive, 3),
             "age": self.age,
+            "maturity_state": self.maturity_state,
+            "fertility_state": self.fertility_state,
+            "life_history": self.life_history.payload(),
+            "reproduction_cooldown": self.reproduction_cooldown,
+            "last_reproduction_tick": self.last_reproduction_tick,
+            "last_reproduction_gate": self.last_reproduction_gate,
             "radius": round(self.radius, 3),
             "model_budget": self.model_budget,
             "model_pending": self.model_pending,
@@ -729,6 +796,21 @@ class FishAgent:
             "health": round(self.health, 3),
             "reproductive_drive": round(self.reproductive_drive, 3),
             "age": self.age,
+            "maturity_state": self.maturity_state,
+            "fertility_state": self.fertility_state,
+            "life_history": {
+                "maturity_age_ticks": self.life_history.maturity_age_ticks,
+                "fertility_end_age_ticks": self.life_history.fertility_end_age_ticks,
+                "expected_lifespan_ticks": self.life_history.expected_lifespan_ticks,
+                "reproduction_interval_ticks": self.life_history.reproduction_interval_ticks,
+                "base_clutch_size": self.life_history.base_clutch_size,
+                "brood_strategy": self.life_history.brood_strategy,
+                "egg_strategy": self.life_history.egg_strategy,
+                "dormancy_bias": round(self.life_history.dormancy_bias, 3),
+                "parthenogenesis_alleles": self.life_history.parthenogenesis_alleles,
+            },
+            "reproduction_cooldown": self.reproduction_cooldown,
+            "last_reproduction_gate": self.last_reproduction_gate,
             "radius": round(self.radius, 3),
             "model_budget": self.model_budget,
             "model_pending": self.model_pending,

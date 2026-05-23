@@ -57,7 +57,7 @@ def test_simulation_runs_fish_agent_loop_and_observable_decisions() -> None:
     starting_signature = sim._reset_signature()
     sim.run(24)
     state = sim.state()
-    assert state["schema"] == "aquagenesys.state.v3"
+    assert state["schema"] == "aquagenesys.state.v4"
     assert state["fish"]
     assert state["telemetry"]["population"] > 0
     assert state["telemetry"]["agent_decisions"]
@@ -203,7 +203,7 @@ def test_frame_state_is_compact_and_observable() -> None:
     sim.run(2)
     state = sim.state()
     frame = sim.frame_state()
-    assert frame["schema"] == "aquagenesys.frame.v1"
+    assert frame["schema"] == "aquagenesys.frame.v2"
     assert "fields" not in frame["environment"]
     assert frame["fish"][0]["decision"]
     assert frame["fish"][0]["genome"]["archetype"]
@@ -289,7 +289,7 @@ def test_frame_endpoint_does_not_return_full_environment_grid() -> None:
     with TestClient(app) as client:
         frame = client.get("/api/frame").json()
         state = client.get("/api/state").json()
-    assert frame["schema"] == "aquagenesys.frame.v1"
+    assert frame["schema"] == "aquagenesys.frame.v2"
     assert "fields" not in frame["environment"]
     assert "fields" in state["environment"]
 
