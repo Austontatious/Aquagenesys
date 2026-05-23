@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Aquagenesys v0.3.7</title>
+    <title>Aquagenesys v0.3.8</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
@@ -13,7 +13,7 @@
         <section class="puddle" aria-label="Aquagenesys puddle viewer">
           <canvas id="pond" width="1200" height="760"></canvas>
           <div class="hud">
-            <b>Aquagenesys v0.3.7</b>
+            <b>Aquagenesys v0.3.8</b>
             <span id="status">connecting</span>
           </div>
           <div id="puddleState" class="state-banner" hidden>DEAD PUDDLE - chemistry still running</div>
@@ -80,6 +80,44 @@
               <h2>Policy / Teaching</h2>
               <ul id="topPolicies" class="dense-list"></ul>
               <ul id="teachingSummary" class="dense-list"></ul>
+            </div>
+          </section>
+
+          <section class="genealogy-explorer" aria-label="Lineage and policy genealogy explorer">
+            <div class="genealogy-heading">
+              <div>
+                <h2>Genealogy Explorer</h2>
+                <p>Instruction changes intent. Biology controls capability. Ecology decides what persists.</p>
+              </div>
+              <dl class="genealogy-summary">
+                <div><dt>Nodes</dt><dd id="genealogyNodesCount">0</dd></div>
+                <div><dt>Edges</dt><dd id="genealogyEdgesCount">0</dd></div>
+                <div><dt>Selected lineage</dt><dd id="genealogySelectedLineage">-</dd></div>
+              </dl>
+            </div>
+            <div class="genealogy-grid">
+              <div>
+                <h3>Biology Track</h3>
+                <ul id="genealogyBiology" class="genealogy-list"></ul>
+              </div>
+              <div>
+                <h3>Behavior Track</h3>
+                <ul id="genealogyBehavior" class="genealogy-list"></ul>
+              </div>
+              <div>
+                <h3>Recovery Roles</h3>
+                <ul id="genealogyRecovery" class="genealogy-list"></ul>
+              </div>
+            </div>
+            <div class="genealogy-grid">
+              <div>
+                <h3>Selected Lineage Path</h3>
+                <ul id="genealogyPath" class="timeline genealogy-list"></ul>
+              </div>
+              <div>
+                <h3>Policy Inheritance</h3>
+                <ul id="genealogyPolicyTrail" class="timeline genealogy-list"></ul>
+              </div>
             </div>
           </section>
 

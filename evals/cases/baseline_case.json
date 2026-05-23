@@ -1,5 +1,5 @@
 {
-  "name": "v037-agent-fish-recovery-observatory-smoke",
+  "name": "v038-agent-fish-genealogy-observatory-smoke",
   "input": {
     "seed": 101,
     "width": 34,
@@ -10,12 +10,13 @@
     "deliberation_enabled": false
   },
   "expected": {
-    "schema": "aquagenesys.state.v7",
+    "schema": "aquagenesys.state.v8",
     "frame_schema": "aquagenesys.frame.v3",
     "max_frame_state_ratio": 0.55,
     "min_population": 1,
     "requires_decisions": true,
     "requires_dashboard": true,
+    "requires_genealogy": true,
     "requires_narrator": true,
     "model_calls": 0,
     "instruction_inheritance_enabled": true,

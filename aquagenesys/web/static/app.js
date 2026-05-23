@@ -151,6 +151,7 @@ function applyState(state) {
   });
   updateTelemetry(state.telemetry);
   updateDashboard(state.dashboard, state.telemetry);
+  updateGenealogy(state.genealogy || {});
 }
 
 function applyFrame(frame) {
@@ -896,6 +897,7 @@ function updateInspector() {
   document.getElementById("fishLineageContext").textContent = lineageContextFor(fish);
   document.getElementById("fishExplain").textContent = explainFish(fish);
   updateCompare();
+  updateGenealogy(latestState?.genealogy || {});
 }
 
 function findFish(id) {
@@ -972,6 +974,8 @@ function renderCompareDetails(id, fish) {
 function compareRelationship(a, b) {
   const rows = [];
   const distance = Math.hypot((a.renderX ?? a.x) - (b.renderX ?? b.x), (a.renderY ?? a.y) - (b.renderY ?? b.y));
+  const relation = genealogyRelationship(a, b);
+  if (relation) rows.push(relation);
   if (a.lineage === b.lineage) rows.push(`Same lineage L${a.lineage}; compare inherited policy drift and lifecycle state.`);
   else rows.push(`Different lineages: L${a.lineage} versus L${b.lineage}.`);
   const aInstruction = a.instruction || {};
@@ -990,6 +994,70 @@ function compareRelationship(a, b) {
   const fertility = `${a.fertility_state}/${b.fertility_state}`;
   rows.push(`Fertility comparison: A/B = ${fertility}.`);
   return rows;
+}
+
+function updateGenealogy(genealogy) {
+  if (!genealogy?.summary) return;
+  document.getElementById("genealogyNodesCount").textContent = genealogy.summary.nodes ?? 0;
+  document.getElementById("genealogyEdgesCount").textContent = genealogy.summary.edges ?? 0;
+  const selected = findFish(selectedFishId) || findFish(hoverFishId);
+  const selectedLineage = selected?.lineage ?? genealogy.lineages?.[0]?.lineage_id ?? null;
+  document.getElementById("genealogySelectedLineage").textContent = selectedLineage === null ? "-" : `L${selectedLineage}`;
+  const lineageNodes = (genealogy.nodes || [])
+    .filter((node) => selectedLineage === null || node.lineage_id === selectedLineage)
+    .sort((a, b) => Number(a.generation || 0) - Number(b.generation || 0));
+  const visibleNodes = lineageNodes.length ? lineageNodes : (genealogy.nodes || []).slice(0, 8);
+  fillList("genealogyBiology", visibleNodes.slice(0, 8), (node) => [
+    nodeLabel(node),
+    `${node.biology?.signature || "-"} / ${labelize(node.capability?.body)} / ${labelize(node.capability?.egg_strategy)}`,
+  ]);
+  fillList("genealogyBehavior", visibleNodes.slice(0, 8), (node) => [
+    nodeLabel(node),
+    `${labelize(node.behavior?.policy_label)} / ${node.behavior?.policy_hash_short || "-"} / skills ${node.behavior?.taught_skill_count ?? 0}`,
+  ]);
+  fillList("genealogyRecovery", genealogy.recovery_contributions?.lineages || [], (item) => [
+    `L${item.lineage_id} ${labelize(item.role)}`,
+    `${item.live_adults} adults / ${item.viable_eggs} eggs / ${item.recent_recovery_events} events`,
+  ]);
+  fillGenealogyPath("genealogyPath", visibleNodes.slice(-10));
+  fillList("genealogyPolicyTrail", genealogy.policy_inheritance?.recent_inheritance || [], (item) => [
+    `${item.tick} ${labelize(item.delivery)}`,
+    `P${item.parent_id} -> ${item.child_id ? `#${item.child_id}` : `egg ${item.egg_id}`} ${labelize(item.policy_label)}`,
+  ]);
+}
+
+function fillGenealogyPath(id, nodes) {
+  const rows = nodes.map((node) => ({
+    tick: `G${node.generation}`,
+    type: node.state,
+    title: nodeLabel(node),
+    detail: `${node.biology?.genome_hash?.slice(0, 8) || "-"} biology / ${node.behavior?.policy_hash_short || "-"} policy`,
+    severity: node.state === "dead" ? "warn" : node.state === "live" ? "good" : "info",
+  }));
+  fillTimeline(id, rows);
+}
+
+function nodeLabel(node) {
+  if (node.entity === "egg") return `Egg ${node.egg_id} L${node.lineage_id}`;
+  if (node.state === "dead") return `Dead #${node.fish_id} L${node.lineage_id}`;
+  return `Fish #${node.fish_id} L${node.lineage_id}`;
+}
+
+function genealogyRelationship(a, b) {
+  const genealogy = latestState?.genealogy;
+  if (!genealogy) return "";
+  const nodeA = (genealogy.nodes || []).find((node) => node.fish_id === a.id && node.state === "live");
+  const nodeB = (genealogy.nodes || []).find((node) => node.fish_id === b.id && node.state === "live");
+  if (!nodeA || !nodeB) return "";
+  const aParents = new Set(nodeA.parent_ids || []);
+  const bParents = new Set(nodeB.parent_ids || []);
+  if (aParents.has(b.id)) return `Fish B is a parent of Fish A; the comparison shows direct inheritance.`;
+  if (bParents.has(a.id)) return `Fish A is a parent of Fish B; the comparison shows direct inheritance.`;
+  const sharedParents = [...aParents].filter((id) => bParents.has(id));
+  if (sharedParents.length) return `They share parent ${sharedParents[0]}, so policy and phenotype differences are sibling drift.`;
+  if (nodeA.biology?.genome_hash === nodeB.biology?.genome_hash) return `Their compact biological signatures match; behavioral differences are the main contrast.`;
+  if (nodeA.behavior?.policy_hash_short === nodeB.behavior?.policy_hash_short) return `Their policy signatures match while biology differs, showing similar intent on different bodies.`;
+  return "";
 }
 
 function stateColor(state) {

@@ -1,0 +1,44 @@
+{
+  "schema": "aquagenesys.v038.report.v1",
+  "date": "2026-05-23",
+  "starting_head": "dcefd81",
+  "state_schema": "aquagenesys.state.v8",
+  "frame_schema": "aquagenesys.frame.v3",
+  "genealogy_schema": "aquagenesys.genealogy.v1",
+  "implemented": {
+    "bounded_genealogy_state": true,
+    "live_adult_nodes": true,
+    "egg_nodes": true,
+    "dormant_egg_nodes": true,
+    "compact_dead_ancestor_nodes": true,
+    "parent_child_edges": true,
+    "biology_behavior_tracks": true,
+    "policy_inheritance_trail": true,
+    "recovery_role_cards": true,
+    "compare_relationship_hints": true,
+    "frame_kept_lightweight": true
+  },
+  "validation": {
+    "pytest_tests": "51 passed",
+    "evals_check": "pass",
+    "evals_runner": "pass",
+    "recovery_assays": {
+      "schema": "aquagenesys.recovery_assays.v1",
+      "mechanics_tuning_recommended": false
+    },
+    "make_lint": "pass",
+    "codex_standards": "9 passed",
+    "node_check": "pass",
+    "browser_smoke": {
+      "loaded_version": "v0.3.8",
+      "genealogy_visible": true,
+      "console_warnings_or_errors": 0,
+      "mobile_horizontal_overflow_seen": false
+    }
+  },
+  "limitations": [
+    "selected-lineage/card view rather than full interactive graph",
+    "dead ancestors are sampled compact summaries",
+    "shared-ancestor compare detection is shallow"
+  ]
+}

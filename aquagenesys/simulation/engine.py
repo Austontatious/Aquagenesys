@@ -22,6 +22,7 @@ from aquagenesys.agents.instructions import (
 from aquagenesys.environment.puddle import EnvironmentConfig, PuddleEnvironment
 from aquagenesys.simulation.dashboard import build_observatory_dashboard
 from aquagenesys.simulation.egg import EggEntity
+from aquagenesys.simulation.genealogy import build_genealogy
 from aquagenesys.storage import FishArchive
 
 
@@ -1236,12 +1237,22 @@ class AquagenesysSimulation:
             self.dead_agent_summaries[fish.fish_id] = {
                 "fish_id": fish.fish_id,
                 "lineage_id": fish.lineage_id,
+                "species_id": fish.species_id,
                 "generation": fish.generation,
+                "parent_ids": list(fish.parent_ids),
                 "death_tick": self.tick,
                 "death_cause": death_cause,
                 "biological_genome_hash": payload["biological_genome_hash"],
+                "phenotype_hash": payload["phenotype_hash"],
                 "instruction_policy_hash": payload["instruction_policy_hash"],
+                "instruction_policy_label": payload["instruction_policy_label"],
                 "taught_skill_hashes": payload["taught_skill_hashes"],
+                "accepted_instruction_patch_ids": payload["accepted_instruction_patch_ids"],
+                "rejected_instruction_patch_ids": payload["rejected_instruction_patch_ids"],
+                "archetype": fish.genome.archetype,
+                "metabolism": fish.genome.metabolism,
+                "body_shape": fish.genome.body_shape,
+                "tail_shape": fish.genome.tail_shape,
                 "summary_stats": payload["summary_stats"],
             }
             if len(self.dead_agent_summaries) > 320:
@@ -1721,7 +1732,7 @@ class AquagenesysSimulation:
     def state(self) -> dict[str, Any]:
         telemetry = self.telemetry()
         return {
-            "schema": "aquagenesys.state.v7",
+            "schema": "aquagenesys.state.v8",
             "tick": self.tick,
             "run_id": self.run_id,
             "config": {
@@ -1742,6 +1753,7 @@ class AquagenesysSimulation:
             "organisms": [fish.payload() for fish in self.fish],
             "telemetry": telemetry,
             "dashboard": self.dashboard(telemetry),
+            "genealogy": self.genealogy(telemetry),
         }
 
     def dashboard(self, telemetry: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1757,6 +1769,19 @@ class AquagenesysSimulation:
             decision_log=self.decision_log,
             dead_agent_summaries=self.dead_agent_summaries,
             field_averages=self.environment.averages(),
+        )
+
+    def genealogy(self, telemetry: dict[str, Any] | None = None) -> dict[str, Any]:
+        return build_genealogy(
+            tick=self.tick,
+            run_id=self.run_id,
+            fish=self.fish,
+            eggs=self.eggs,
+            dead_agent_summaries=self.dead_agent_summaries,
+            instruction_log=self.instruction_log,
+            reproduction_log=self.reproduction_log,
+            events=self.events,
+            telemetry=telemetry or self.telemetry(),
         )
 
     def frame_state(self) -> dict[str, Any]:

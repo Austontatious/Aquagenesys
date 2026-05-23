@@ -138,6 +138,8 @@ def run_eval() -> int:
             failures.append("frame schema mismatch")
         if expected.get("requires_dashboard") and state.get("dashboard", {}).get("schema") != "aquagenesys.dashboard.v2":
             failures.append("missing observatory dashboard")
+        if expected.get("requires_genealogy") and state.get("genealogy", {}).get("schema") != "aquagenesys.genealogy.v1":
+            failures.append("missing genealogy explorer state")
         if expected.get("requires_narrator") and not state.get("dashboard", {}).get("narrator", {}).get("headline"):
             failures.append("missing ecology narrator")
         if "fields" in frame.get("environment", {}):
@@ -190,6 +192,8 @@ def run_eval() -> int:
                 "instruction_inheritance_events": instruction.get("inheritance_events", 0),
                 "policy_variants_alive": instruction.get("policy_variants_alive", 0),
                 "dashboard_schema": state.get("dashboard", {}).get("schema", ""),
+                "genealogy_schema": state.get("genealogy", {}).get("schema", ""),
+                "genealogy_nodes": state.get("genealogy", {}).get("summary", {}).get("nodes", 0),
                 "frame_bytes": len(json.dumps(frame)),
                 "state_bytes": len(json.dumps(state)),
             }
@@ -201,7 +205,7 @@ def run_eval() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Aquagenesys v0.3.7 eval harness")
+    parser = argparse.ArgumentParser(description="Aquagenesys v0.3.8 eval harness")
     parser.add_argument("--check", action="store_true", help="validate eval scaffolding only")
     args = parser.parse_args(argv)
     if args.check:

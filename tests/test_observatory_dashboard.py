@@ -19,7 +19,7 @@ def test_state_includes_grounded_observatory_dashboard() -> None:
     state = sim.state()
     dashboard = state["dashboard"]
     telemetry = state["telemetry"]
-    assert state["schema"] == "aquagenesys.state.v7"
+    assert state["schema"] == "aquagenesys.state.v8"
     assert dashboard["schema"] == "aquagenesys.dashboard.v2"
     assert dashboard["population"]["adults"] == telemetry["adult_population"]
     assert dashboard["population"]["lineages"] == telemetry["lineage_count"]
