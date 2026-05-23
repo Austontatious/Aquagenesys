@@ -1,5 +1,5 @@
 {
-  "name": "v034-agent-fish-smoke",
+  "name": "v035-agent-fish-smoke",
   "input": {
     "seed": 101,
     "width": 34,
@@ -10,11 +10,14 @@
     "deliberation_enabled": false
   },
   "expected": {
-    "schema": "aquagenesys.state.v4",
-    "frame_schema": "aquagenesys.frame.v2",
+    "schema": "aquagenesys.state.v5",
+    "frame_schema": "aquagenesys.frame.v3",
     "max_frame_state_ratio": 0.55,
     "min_population": 1,
     "requires_decisions": true,
-    "model_calls": 0
+    "model_calls": 0,
+    "instruction_inheritance_enabled": true,
+    "model_teaching_enabled": false,
+    "min_policy_variants_alive": 1
   }
 }

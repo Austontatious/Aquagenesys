@@ -164,6 +164,11 @@ function updateTelemetry(telemetry) {
   document.getElementById("stress").textContent = Number(telemetry.average_stress || 0).toFixed(2);
   document.getElementById("modelCalls").textContent = telemetry.model?.calls ?? 0;
   document.getElementById("modelPending").textContent = telemetry.model?.pending ?? 0;
+  const instruction = telemetry.instruction || {};
+  document.getElementById("policyVariants").textContent = instruction.policy_variants_alive ?? 0;
+  document.getElementById("teachingEvents").textContent = instruction.teaching_events ?? 0;
+  document.getElementById("instructionPatches").textContent = instruction.patches_accepted ?? 0;
+  document.getElementById("instructionRejected").textContent = instruction.patches_rejected ?? 0;
   fillList("decisions", telemetry.agent_decisions || [], (item) => [
     `${item.tick} #${item.fish_id} ${item.action}`,
     `${item.source}: ${item.outcome}`,
@@ -174,6 +179,14 @@ function updateTelemetry(telemetry) {
     item.egg_count ? `${item.egg_count} eggs` : item.offspring_count ? `${item.offspring_count} born` : item.fertility_state || "",
   ]);
   fillList("gates", Object.entries(telemetry.reproduction_gate_reasons || {}), (item) => [
+    String(item[0]).replaceAll("_", " "),
+    item[1],
+  ]);
+  fillList("instruction", instruction.recent_events || [], (item) => [
+    `${item.tick} ${String(item.event_type || item.delivery || "instruction").replaceAll("_", " ")}`,
+    item.offspring_policy_label || item.patch_reason || item.patch_id || "",
+  ]);
+  fillList("instructionRejections", Object.entries(instruction.rejection_reasons || {}), (item) => [
     String(item[0]).replaceAll("_", " "),
     item[1],
   ]);
@@ -190,6 +203,8 @@ function eventDetail(event) {
   if (event.kind === "egg_clutch") return `${event.eggs} eggs`;
   if (event.kind === "egg_hatched") return `#${event.child}`;
   if (event.kind === "egg_died") return event.cause || "";
+  if (event.kind === "instruction_patch_accepted") return event.skill || event.patch_id || "";
+  if (event.kind === "instruction_patch_rejected") return event.reason || "";
   if (event.kind === "dormant_biosphere") return `${event.viable_eggs} viable eggs`;
   if (event.kind === "death") return event.cause || "";
   if (event.kind === "model_deliberation_queued") return `pending ${event.pending}`;
@@ -724,6 +739,13 @@ function updateInspector() {
     `cool ${fish.reproduction_cooldown ?? 0} gate ${String(fish.last_reproduction_gate || "-").replaceAll("_", " ")}`;
   document.getElementById("fishEggTraits").textContent =
     `dorm ${Number(life.dormancy_bias || 0).toFixed(2)} parth ${life.parthenogenesis_alleles ?? 0}`;
+  const instruction = fish.instruction || fish.instruction_genome || {};
+  document.getElementById("fishPolicy").textContent =
+    `${instruction.policy_hash_short || "-"} ${instruction.policy_label || ""}`;
+  document.getElementById("fishStrategy").textContent =
+    `${instruction.risk_posture || "-"} / ${String(instruction.forage_strategy || "-").replaceAll("_", "-")} / ${String(instruction.energy_strategy || "-").replaceAll("_", "-")}`;
+  document.getElementById("fishTeaching").textContent =
+    `${String(instruction.teaching_style || "-").replaceAll("_", "-")} skills ${instruction.skill_count ?? (fish.taught_skills || []).length ?? 0} acc ${instruction.accepted_patches ?? fish.instruction_lineage?.accepted_patch_ids?.length ?? 0} rej ${instruction.rejected_patches ?? fish.instruction_lineage?.rejected_patch_ids?.length ?? 0}`;
   document.getElementById("fishDecision").textContent = `${fish.decision.source}: ${fish.decision.kind}`;
   document.getElementById("fishIntent").textContent = fish.active_intent
     ? `${fish.active_intent.kind} ttl ${fish.model_intent_ttl}`

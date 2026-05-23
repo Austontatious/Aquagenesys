@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 from pathlib import Path
+from random import Random
 import sys
+import tempfile
 from typing import Any
 
 
@@ -11,6 +14,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CASES_ROOT = REPO_ROOT / "evals" / "cases"
 DATASETS_ROOT = REPO_ROOT / "evals" / "datasets"
 RESULTS_PATH = REPO_ROOT / "evals" / "last_results.json"
+
+
+class _LowRandom(Random):
+    def random(self) -> float:
+        return 0.0
 
 
 def _load_case(path: Path) -> dict[str, Any]:
@@ -52,6 +60,10 @@ def run_eval() -> int:
         case = _load_case(path)
         input_payload = case["input"]
         expected = case["expected"]
+        scenario = str(input_payload.get("scenario", "default"))
+        archive_dir = str(input_payload.get("archive_dir", ""))
+        if scenario == "archive_trace":
+            archive_dir = tempfile.mkdtemp(prefix="aquagenesys-v035-eval-")
         config = SimulationConfig(
             seed=int(input_payload.get("seed", 42)),
             width=int(input_payload.get("width", 34)),
@@ -59,9 +71,63 @@ def run_eval() -> int:
             initial_population=int(input_payload.get("initial_population", 10)),
             max_population=int(input_payload.get("max_population", 32)),
             deliberation_enabled=bool(input_payload.get("deliberation_enabled", False)),
-            archive_every_ticks=0,
+            archive_dir=archive_dir or "/tmp/aquagenesys-v03-evals",
+            archive_every_ticks=int(input_payload.get("archive_every_ticks", 0)),
         )
         sim = AquagenesysSimulation(config)
+        if scenario in {"safe_inheritance", "bad_teaching", "archive_trace"} and len(sim.fish) >= 2:
+            sim.rng = _LowRandom(config.seed)
+            parent = sim.fish[0]
+            mate = sim.fish[1]
+            parent.genome = replace(parent.genome, reproduction_rate=0.96, dormancy_bias=0.88, mutation_load=0.03)
+            parent.age = parent.life_history.maturity_age_ticks + 10
+            parent.energy = float(input_payload.get("parent_energy", 94.0))
+            parent.health = 0.96
+            parent.stress = 0.03
+            parent.fear = 0.03
+            parent.reproductive_drive = 0.99
+            parent.reproduction_cooldown = 0
+            parent.x = config.width / 2
+            parent.y = config.height / 2
+            mate.genome = replace(mate.genome, metabolism=parent.genome.metabolism)
+            mate.x = parent.x + 1
+            mate.y = parent.y + 1
+            if scenario == "safe_inheritance":
+                from aquagenesys.agents import Action
+
+                parent.memory.record(1, Action("forage", 1, 0, 0.5, "habit", "eval"), outcome="fed", delta_energy=1.0, delta_health=0.0)
+                parent.memory.record(2, Action("forage", 1, 0, 0.5, "habit", "eval"), outcome="fed", delta_energy=1.0, delta_health=0.0)
+            if scenario == "bad_teaching":
+                sim.propose_offspring_instruction_patch(
+                    parent.fish_id,
+                    {
+                        "patch_type": "offspring_behavior_prior",
+                        "target_skill_type": "energy",
+                        "trigger": "high_energy",
+                        "action_bias": "burst_then_recover",
+                        "risk_delta": 0.14,
+                        "energy_bias": "burst_then_recover",
+                        "memory_bias": "prefer_recent_success",
+                        "ttl_generations": 2,
+                        "rationale_tag": "bad_burst_strategy_eval",
+                    },
+                )
+            perception = sim._sense(parent)
+            perception.reproduction_score = 0.94
+            perception.resource_score = 0.90
+            perception.crowding = 0.0
+            sim._maybe_reproduce(parent, perception)
+        if scenario == "forbidden_patch" and sim.fish:
+            sim.propose_offspring_instruction_patch(
+                sim.fish[0].fish_id,
+                {
+                    "patch_type": "offspring_behavior_prior",
+                    "target_skill_type": "energy",
+                    "trigger": "low_energy",
+                    "action_bias": "conserve",
+                    "rationale_tag": "call shell access filesystem teleport disable death",
+                },
+            )
         sim.run(int(input_payload.get("ticks", 10)))
         state = sim.state()
         frame = sim.frame_state()
@@ -88,6 +154,19 @@ def run_eval() -> int:
             failures.append("missing agent decisions")
         if state["telemetry"]["model"]["calls"] != int(expected.get("model_calls", state["telemetry"]["model"]["calls"])):
             failures.append("unexpected model call count")
+        instruction = state["telemetry"].get("instruction", {})
+        if instruction.get("patches_accepted", 0) < int(expected.get("min_instruction_patches_accepted", 0)):
+            failures.append("instruction patch acceptance below threshold")
+        if instruction.get("patches_rejected", 0) < int(expected.get("min_instruction_patches_rejected", 0)):
+            failures.append("instruction patch rejection below threshold")
+        if instruction.get("inheritance_events", 0) < int(expected.get("min_instruction_inheritance_events", 0)):
+            failures.append("instruction inheritance below threshold")
+        if instruction.get("policy_variants_alive", 0) < int(expected.get("min_policy_variants_alive", 0)):
+            failures.append("policy variants below threshold")
+        if expected.get("instruction_inheritance_enabled") is not None and instruction.get("inheritance_enabled") != expected.get("instruction_inheritance_enabled"):
+            failures.append("instruction inheritance flag mismatch")
+        if expected.get("model_teaching_enabled") is not None and instruction.get("model_teaching_enabled") != expected.get("model_teaching_enabled"):
+            failures.append("model teaching flag mismatch")
         if failures:
             status = "fail"
         case_results.append(
@@ -102,6 +181,10 @@ def run_eval() -> int:
                 "biosphere_state": state["telemetry"]["biosphere_state"],
                 "tick": state["telemetry"]["tick"],
                 "model_calls": state["telemetry"]["model"]["calls"],
+                "instruction_patches_accepted": instruction.get("patches_accepted", 0),
+                "instruction_patches_rejected": instruction.get("patches_rejected", 0),
+                "instruction_inheritance_events": instruction.get("inheritance_events", 0),
+                "policy_variants_alive": instruction.get("policy_variants_alive", 0),
                 "frame_bytes": len(json.dumps(frame)),
                 "state_bytes": len(json.dumps(state)),
             }
@@ -113,7 +196,7 @@ def run_eval() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Aquagenesys v0.3.4 eval harness")
+    parser = argparse.ArgumentParser(description="Aquagenesys v0.3.5 eval harness")
     parser.add_argument("--check", action="store_true", help="validate eval scaffolding only")
     args = parser.parse_args(argv)
     if args.check:

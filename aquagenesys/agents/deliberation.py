@@ -83,6 +83,8 @@ class FishDeliberationController:
                 "age": fish.age,
                 "model_budget": fish.model_budget,
                 "genome": fish.genome.payload(),
+                "instruction_genome": fish.instruction_genome.compact_payload(),
+                "taught_skills": [skill.payload(compact=True) for skill in fish.taught_skills],
                 "memory_summary": fish.memory.summary(),
                 "last_decision": fish.last_decision.payload(),
             },

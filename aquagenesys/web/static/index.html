@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Aquagenesys v0.3.4</title>
+    <title>Aquagenesys v0.3.5</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
@@ -12,7 +12,7 @@
       <section class="puddle" aria-label="Aquagenesys puddle viewer">
         <canvas id="pond" width="1200" height="760"></canvas>
         <div class="hud">
-          <b>Aquagenesys v0.3.4</b>
+          <b>Aquagenesys v0.3.5</b>
           <span id="status">connecting</span>
         </div>
         <div id="puddleState" class="state-banner" hidden>DEAD PUDDLE - chemistry still running</div>
@@ -47,6 +47,10 @@
           <div><dt>Stress</dt><dd id="stress">0</dd></div>
           <div><dt>Model</dt><dd id="modelCalls">0</dd></div>
           <div><dt>Pending</dt><dd id="modelPending">0</dd></div>
+          <div><dt>Policies</dt><dd id="policyVariants">0</dd></div>
+          <div><dt>Teaching</dt><dd id="teachingEvents">0</dd></div>
+          <div><dt>Patches</dt><dd id="instructionPatches">0</dd></div>
+          <div><dt>Rejected</dt><dd id="instructionRejected">0</dd></div>
         </dl>
 
         <section class="inspector">
@@ -62,6 +66,9 @@
             <div><dt>Lifecycle</dt><dd id="fishLifecycle">-</dd></div>
             <div><dt>Repro</dt><dd id="fishRepro">-</dd></div>
             <div><dt>Egg Traits</dt><dd id="fishEggTraits">-</dd></div>
+            <div><dt>Policy</dt><dd id="fishPolicy">-</dd></div>
+            <div><dt>Strategy</dt><dd id="fishStrategy">-</dd></div>
+            <div><dt>Teaching</dt><dd id="fishTeaching">-</dd></div>
             <div><dt>Decision</dt><dd id="fishDecision">-</dd></div>
             <div><dt>Intent</dt><dd id="fishIntent">-</dd></div>
             <div><dt>Energy</dt><dd id="fishEnergy">-</dd></div>
@@ -77,6 +84,10 @@
           <ul id="reproduction"></ul>
           <h2>Gate Failures</h2>
           <ul id="gates"></ul>
+          <h2>Instruction</h2>
+          <ul id="instruction"></ul>
+          <h2>Patch Rejections</h2>
+          <ul id="instructionRejections"></ul>
           <h2>Species</h2>
           <ul id="clusters"></ul>
           <h2>Deaths</h2>

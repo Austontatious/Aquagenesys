@@ -133,7 +133,21 @@ def test_dormant_egg_decay_is_slower_than_active_decay() -> None:
     )
     parent = mature_for_reproduction(sim)
     perception = good_perception(sim, parent)
-    egg = sim._create_egg(parent, parent.genome, perception, 9.0, parthenogenetic=False)
+    instruction_genome, taught_skills, patch_decision = sim._offspring_instruction_seed(
+        parent,
+        child_generation=parent.generation + 1,
+        parthenogenetic=False,
+    )
+    egg = sim._create_egg(
+        parent,
+        parent.genome,
+        instruction_genome,
+        taught_skills,
+        perception,
+        9.0,
+        parthenogenetic=False,
+        patch_decision=patch_decision,
+    )
     active = replace(egg, egg_id=500, dormant=False, state="gestating", viability=0.8)
     dormant = replace(egg, egg_id=501, dormant=True, state="dormant", viability=0.8)
     sim.rng = HighRandom(1)

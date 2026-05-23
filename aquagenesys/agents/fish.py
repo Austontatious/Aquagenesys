@@ -6,6 +6,7 @@ from math import atan2, hypot, pi
 from random import Random
 from typing import Any
 
+from aquagenesys.agents.instructions import BehaviorInstructionGenome, TaughtSkill
 from aquagenesys.agents.life_history import LifeHistoryProfile, derive_life_history
 
 
@@ -334,6 +335,9 @@ class FishGenome:
     def life_history(self) -> LifeHistoryProfile:
         return derive_life_history(self)
 
+    def instruction_genome(self, rng: Random) -> BehaviorInstructionGenome:
+        return BehaviorInstructionGenome.founder(rng, biological_genome=self)
+
     def phenotype_payload(self, *, compact: bool = False) -> dict[str, Any]:
         body_length = 1.22 + self.body_size * 0.52 + self.max_speed * 0.16
         body_depth = 0.42 + self.body_depth * 0.54
@@ -557,6 +561,11 @@ class FishAgent:
     age: int = 0
     generation: int = 0
     parent_ids: tuple[int, ...] = field(default_factory=tuple)
+    instruction_genome: BehaviorInstructionGenome = field(default_factory=BehaviorInstructionGenome)
+    taught_skills: list[TaughtSkill] = field(default_factory=list)
+    instruction_inherited_from: str = ""
+    accepted_instruction_patch_ids: list[str] = field(default_factory=list)
+    rejected_instruction_patch_ids: list[str] = field(default_factory=list)
     model_budget: int = 0
     deliberation_cooldown: int = 0
     memory: FishMemory = field(default_factory=FishMemory)
@@ -621,11 +630,19 @@ class FishAgent:
         self.stress = clamp(self.stress * 0.72 + perception.stress * 0.28)
         threat_signal = 1.0 - clamp(perception.nearest_threat[2] / max(1.0, self.genome.sensory_range))
         self.fear = clamp(self.fear * 0.80 + max(0.0, threat_signal - 0.25) * 0.28 + self.stress * 0.12)
+        reproduction_bias = {
+            "early_and_often": 0.004,
+            "energy_reserve_first": -0.004 if self.energy < 62.0 else 0.002,
+            "wait_for_good_conditions": 0.003 if perception.reproduction_score > 0.66 else -0.002,
+            "clutch_when_safe": 0.004 if self.stress < 0.34 and self.fear < 0.36 else -0.003,
+            "emergency_last_chance": 0.004 if self.fertility_state == "late_fertility" else -0.001,
+        }.get(self.instruction_genome.reproduction_strategy, 0.0)
         if perception.resource_score > 0.35 and self.health > 0.35 and self.fertility_state != "too_old":
             self.reproductive_drive = clamp(
                 self.reproductive_drive
                 + 0.014 * self.genome.reproduction_rate
                 + max(0.0, self.energy - 40.0) * 0.0010
+                + reproduction_bias
             )
         else:
             self.reproductive_drive = clamp(self.reproductive_drive - 0.012)
@@ -633,6 +650,7 @@ class FishAgent:
         self.last_perception = perception
 
     def reflex_action(self, perception: Perception) -> Action | None:
+        risk_threshold = 0.68 if self.instruction_genome.risk_posture == "cautious" else 0.82 if self.instruction_genome.risk_posture == "bold" else 0.76
         if self.health < 0.18:
             dx, dy = perception.vector_for("shelter")
             return Action("shelter", dx, dy, 0.72, "reflex", "critical health seeks shelter", 0.88).normalized()
@@ -648,37 +666,76 @@ class FishAgent:
                 "local chemistry is hostile",
                 0.82,
             ).normalized()
-        if self.fear > 0.76:
+        if self.fear > risk_threshold:
+            if self.instruction_genome.threat_strategy in {"hide", "freeze"}:
+                dx, dy = perception.vector_for("shelter")
+                intensity = 0.56 if self.instruction_genome.threat_strategy == "freeze" else 0.70
+                return Action("shelter", dx, dy, intensity, "reflex", "instruction-biased threat shelter", 0.80).normalized()
             dx, dy = perception.vector_for("threat")
-            return Action("flee", dx, dy, 0.92, "reflex", "nearby threat dominates", 0.80).normalized()
+            intensity = 1.0 if self.instruction_genome.threat_strategy == "flee_fast" else 0.84
+            return Action("flee", dx, dy, intensity, "reflex", "nearby threat dominates", 0.80).normalized()
         if self.hunger > 0.90 and perception.nearest_food[2] < self.genome.sensory_range * 1.6:
             dx, dy = perception.vector_for("food")
             return Action("eat", dx, dy, 0.88, "reflex", "hunger near starvation", 0.78).normalized()
         return None
 
     def heuristic_action(self, perception: Perception, rng: Random) -> Action:
+        instruction = self.instruction_genome
+        energy_multiplier = 0.82 if instruction.energy_strategy == "conserve" else 1.12 if instruction.energy_strategy == "burst_then_recover" else 1.0
+        if instruction.energy_strategy == "conserve" and self.hunger < 0.42 and self.stress < 0.36 and self.energy < 54.0:
+            dx, dy = perception.vector_for("shelter")
+            return Action("rest", dx, dy, 0.28, "habit", "instruction conserves energy", 0.56).normalized()
+        if instruction.risk_posture == "cautious" and (self.stress > 0.38 or self.fear > 0.38):
+            dx, dy = perception.vector_for("shelter")
+            return Action("shelter", dx, dy, 0.48 * energy_multiplier, "habit", "cautious instruction favors shelter", 0.62).normalized()
         if (
             self.genome.metabolism == "predator"
             and self.hunger > 0.48
             and perception.nearest_prey[2] < self.genome.sensory_range
+            and instruction.risk_posture != "cautious"
         ):
             dx, dy = perception.vector_for("prey")
-            return Action("hunt", dx, dy, 0.74, "habit", "predator tracks reachable prey", 0.68).normalized()
+            return Action("hunt", dx, dy, 0.74 * energy_multiplier, "habit", "predator tracks reachable prey", 0.68).normalized()
         if self.reproductive_drive > 0.70 and perception.reproduction_score > 0.50 and perception.nearest_mate[2] < 18.0:
             dx, dy = perception.vector_for("mate")
             return Action("court", dx, dy, 0.58, "habit", "reproductive drive and viable water", 0.64).normalized()
         if self.hunger > 0.44 or perception.resource_score > 0.62:
             dx, dy = perception.vector_for("food")
-            return Action("forage", dx, dy, 0.60 + self.hunger * 0.24, "habit", "resource-seeking policy", 0.62).normalized()
+            reason = "resource-seeking policy"
+            if instruction.forage_strategy == "safe_food":
+                sx, sy = perception.vector_for("shelter")
+                dx = dx * 0.72 + sx * 0.28
+                dy = dy * 0.72 + sy * 0.28
+                reason = "safe-foraging instruction"
+            elif instruction.forage_strategy == "opportunistic_scavenge":
+                cx, cy = perception.gradients["plankton"]
+                dx = dx * 0.82 + cx * 0.18
+                dy = dy * 0.82 + cy * 0.18
+                reason = "opportunistic forage instruction"
+            elif instruction.forage_strategy == "follow_success_memory" and "fed" in self.recent_outcomes[-3:]:
+                reason = "recent success forage instruction"
+            return Action("forage", dx, dy, (0.60 + self.hunger * 0.24) * energy_multiplier, "habit", reason, 0.62).normalized()
         if self.stress > 0.44 or self.fear > 0.44:
             dx, dy = perception.vector_for("shelter")
             return Action("shelter", dx, dy, 0.52, "habit", "stress favors shelter", 0.58).normalized()
-        if perception.neighbor_count > 0 and self.genome.sociality > 0.52:
+        if perception.neighbor_count > 0 and (self.genome.sociality > 0.52 or instruction.social_strategy in {"school_near_kin", "school_any"}):
             dx, dy = perception.vector_for("mate")
-            return Action("school", dx, dy, 0.36, "habit", "social genome schools loosely", 0.52).normalized()
-        angle_x = rng.uniform(-1.0, 1.0) + perception.gradients["current"][0] * 0.8
-        angle_y = rng.uniform(-1.0, 1.0) + perception.gradients["current"][1] * 0.8
-        return Action("explore", angle_x, angle_y, 0.34 + self.genome.curiosity * 0.24, "habit", "low pressure exploration", 0.46).normalized()
+            return Action("school", dx, dy, 0.36, "habit", "instruction/social genome schools loosely", 0.52).normalized()
+        if instruction.exploration_strategy == "edge_probe":
+            angle_x, angle_y = perception.edge_vector
+            reason = "edge-probe instruction"
+        elif instruction.exploration_strategy == "local_patch":
+            angle_x, angle_y = perception.gradients["food"]
+            reason = "local-patch instruction"
+        elif instruction.exploration_strategy == "memory_guided" and "fed" in self.recent_outcomes[-5:]:
+            angle_x, angle_y = perception.vector_for("food")
+            reason = "memory-guided instruction"
+        else:
+            angle_x = rng.uniform(-1.0, 1.0) + perception.gradients["current"][0] * 0.8
+            angle_y = rng.uniform(-1.0, 1.0) + perception.gradients["current"][1] * 0.8
+            reason = "low pressure exploration"
+        novelty = 0.10 if instruction.exploration_strategy == "novelty_seek" else 0.0
+        return Action("explore", angle_x, angle_y, (0.34 + self.genome.curiosity * 0.24 + novelty) * energy_multiplier, "habit", reason, 0.46).normalized()
 
     def should_deliberate(self, perception: Perception, rng: Random, *, global_enabled: bool) -> bool:
         if not global_enabled or self.model_budget <= 0 or self.deliberation_cooldown > 0:
@@ -693,7 +750,7 @@ class FishAgent:
             uncertainty += 0.18
         if pressure > 0.62:
             uncertainty += 0.18
-        chance = self.genome.deliberation_chance + uncertainty
+        chance = self.genome.deliberation_chance + uncertainty + self.instruction_genome.model_deliberation_bias
         return rng.random() < chance
 
     def set_model_intent(self, action: Action, ttl: int) -> None:
@@ -770,6 +827,13 @@ class FishAgent:
             "recent_outcomes": list(self.recent_outcomes[-5:]),
             "memory": self.memory.payload(),
             "genome": self.genome.payload(),
+            "instruction_genome": self.instruction_genome.policy_payload(),
+            "taught_skills": [skill.payload() for skill in self.taught_skills],
+            "instruction_lineage": {
+                "inherited_from": self.instruction_inherited_from,
+                "accepted_patch_ids": list(self.accepted_instruction_patch_ids[-8:]),
+                "rejected_patch_ids": list(self.rejected_instruction_patch_ids[-8:]),
+            },
             "phenotype": self.genome.phenotype_payload(),
             "locomotion": self.locomotion_payload(),
             "decision": self.last_decision.payload(),
@@ -824,6 +888,12 @@ class FishAgent:
                 "aggression": round(self.genome.aggression, 3),
                 "color": self.genome.color,
                 "accent_color": self.genome.accent_color,
+            },
+            "instruction": {
+                **self.instruction_genome.compact_payload(),
+                "skill_count": len(self.taught_skills),
+                "accepted_patches": len(self.accepted_instruction_patch_ids),
+                "rejected_patches": len(self.rejected_instruction_patch_ids),
             },
             "phenotype": self.genome.phenotype_payload(compact=True),
             "locomotion": self.locomotion_payload(),

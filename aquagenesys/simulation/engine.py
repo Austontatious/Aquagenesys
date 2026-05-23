@@ -10,6 +10,15 @@ from typing import Any
 
 from aquagenesys.agents import Action, FishAgent, FishDeliberationController, FishDeliberationResult, FishGenome, Perception
 from aquagenesys.agents.fish import clamp, unit, wrap_angle
+from aquagenesys.agents.instructions import (
+    BehaviorInstructionGenome,
+    InstructionPatchDecision,
+    TaughtSkill,
+    inherit_taught_skills,
+    rule_generated_patch,
+    stable_hash,
+    validate_instruction_patch,
+)
 from aquagenesys.environment.puddle import EnvironmentConfig, PuddleEnvironment
 from aquagenesys.simulation.egg import EggEntity
 from aquagenesys.storage import FishArchive
@@ -40,6 +49,8 @@ class SimulationConfig:
     trace_jsonl_path: str = "/tmp/aquagenesys-v03/llm-trace.jsonl"
     archive_dir: str = "/tmp/aquagenesys-v03"
     archive_every_ticks: int = 25
+    instruction_inheritance_enabled: bool = True
+    model_teaching_enabled: bool = False
     debug_founder_reseed_enabled: bool = False
     debug_founder_reseed_min_population: int = 8
     debug_founder_reseed_after_ticks: int = 80
@@ -80,6 +91,7 @@ class AquagenesysSimulation:
         self.decision_log: deque[dict[str, Any]] = deque(maxlen=36)
         self.events: deque[dict[str, Any]] = deque(maxlen=36)
         self.reproduction_log: deque[dict[str, Any]] = deque(maxlen=48)
+        self.instruction_log: deque[dict[str, Any]] = deque(maxlen=64)
         self.births = 0
         self.births_reproduction = 0
         self.births_hatched = 0
@@ -89,6 +101,14 @@ class AquagenesysSimulation:
         self.egg_deaths = 0
         self.egg_deaths_by_cause: Counter[str] = Counter()
         self.reproduction_gate_reasons: Counter[str] = Counter()
+        self.instruction_patches_proposed = 0
+        self.instruction_patches_accepted = 0
+        self.instruction_patches_rejected = 0
+        self.teaching_events = 0
+        self.instruction_inheritance_events = 0
+        self.instruction_rejection_reasons: Counter[str] = Counter()
+        self.agent_code_snapshots = 0
+        self.dead_agent_summaries: dict[int, dict[str, Any]] = {}
         self.deaths_by_cause: Counter[str] = Counter()
         self.extinction_events = 0
         self.recovery_events = 0
@@ -129,6 +149,8 @@ class AquagenesysSimulation:
                 "initial_population": self.config.initial_population,
                 "seed": self._initial_seed,
                 "archive_every_ticks": self.config.archive_every_ticks,
+                "instruction_inheritance_enabled": self.config.instruction_inheritance_enabled,
+                "model_teaching_enabled": self.config.model_teaching_enabled,
             }
         )
         self.initial_signature = self._reset_signature()
@@ -159,6 +181,13 @@ class AquagenesysSimulation:
         seed = self.rng.randint(1, 2_000_000_000)
         self.environment.randomize(seed)
         self._event("environment_randomized", seed=seed)
+
+    def propose_offspring_instruction_patch(self, fish_id: int, proposal: dict[str, Any]) -> InstructionPatchDecision:
+        fish = self._fish_by_id(fish_id)
+        if fish is None:
+            patch_id = stable_hash({"fish_id": fish_id, "proposal": proposal}, length=16)
+            return InstructionPatchDecision(False, "fish_not_found", patch_id)
+        return self._validate_and_record_instruction_patch(fish, proposal)
 
     def run(self, ticks: int) -> None:
         for _ in range(max(0, ticks)):
@@ -250,6 +279,7 @@ class AquagenesysSimulation:
             lineage_id = self.next_lineage_id
             self.next_lineage_id += 1
             genome = FishGenome.founder(self.rng, lineage_id=lineage_id, archetype=archetype)
+            instruction_genome = BehaviorInstructionGenome.founder(self.rng, biological_genome=genome)
             x, y = self._spawn_position(archetype)
             fish = FishAgent(
                 fish_id=self.next_fish_id,
@@ -266,6 +296,7 @@ class AquagenesysSimulation:
                 stress=self.rng.uniform(0.08, 0.24),
                 health=self.rng.uniform(0.76, 0.98),
                 reproductive_drive=self.rng.uniform(0.05, 0.22),
+                instruction_genome=instruction_genome,
                 model_budget=self.config.fish_model_budget,
             )
             if abs(fish.vx) + abs(fish.vy) > 0.001:
@@ -273,6 +304,7 @@ class AquagenesysSimulation:
                 fish.locomotion_speed = hypot(fish.vx, fish.vy)
             self.next_fish_id += 1
             self.fish.append(fish)
+            self._record_agent_code_snapshot(fish, event_type="founder_birth")
             if birth_kind == "debug_reseed":
                 self.births += 1
                 self.births_reseed_debug += 1
@@ -735,10 +767,37 @@ class AquagenesysSimulation:
             genome = parent.genome.mutated(self.rng, lineage_id=None if lineage_id == parent.lineage_id else lineage_id)
             if parthenogenetic:
                 genome = genome.mutated(self.rng)
+            instruction_genome, taught_skills, patch_decision = self._offspring_instruction_seed(
+                parent,
+                child_generation=parent.generation + 1,
+                parthenogenetic=parthenogenetic,
+            )
             if self._should_lay_egg(parent, perception, life, parthenogenetic, index):
-                eggs.append(self._create_egg(parent, genome, perception, energy_per, parthenogenetic=parthenogenetic))
+                eggs.append(
+                    self._create_egg(
+                        parent,
+                        genome,
+                        instruction_genome,
+                        taught_skills,
+                        perception,
+                        energy_per,
+                        parthenogenetic=parthenogenetic,
+                        patch_decision=patch_decision,
+                    )
+                )
             elif len(self.fish) + len(newborns) < self.config.max_population:
-                newborns.append(self._create_child(parent, genome, perception, energy_per, parthenogenetic=parthenogenetic))
+                newborns.append(
+                    self._create_child(
+                        parent,
+                        genome,
+                        instruction_genome,
+                        taught_skills,
+                        perception,
+                        energy_per,
+                        parthenogenetic=parthenogenetic,
+                        patch_decision=patch_decision,
+                    )
+                )
 
         if not newborns and not eggs:
             self._record_reproduction_gate(parent, "clutch_energy_too_low", perception, mode=mode)
@@ -873,10 +932,13 @@ class AquagenesysSimulation:
         self,
         parent: FishAgent,
         genome: FishGenome,
+        instruction_genome: BehaviorInstructionGenome,
+        taught_skills: list[TaughtSkill],
         perception: Perception,
         energy_per: float,
         *,
         parthenogenetic: bool,
+        patch_decision: InstructionPatchDecision | None = None,
     ) -> FishAgent:
         dx = self.rng.uniform(-1.0, 1.0)
         dy = self.rng.uniform(-1.0, 1.0)
@@ -899,22 +961,32 @@ class AquagenesysSimulation:
             reproductive_drive=0.01,
             generation=parent.generation + 1,
             parent_ids=(parent.fish_id,),
+            instruction_genome=instruction_genome,
+            taught_skills=taught_skills,
+            instruction_inherited_from=parent.instruction_genome.policy_hash,
+            accepted_instruction_patch_ids=list(instruction_genome.accepted_patch_ids),
+            rejected_instruction_patch_ids=list(instruction_genome.rejected_patch_ids),
             model_budget=max(1, self.config.fish_model_budget - 1),
             heading=parent.heading,
             swim_phase=parent.swim_phase,
             locomotion_speed=hypot(parent.vx, parent.vy),
         )
         self.next_fish_id += 1
+        self._record_instruction_inheritance(parent, child=child, patch_decision=patch_decision, delivery="live_birth")
+        self._record_agent_code_snapshot(child, event_type="live_birth_code_snapshot", parent=parent)
         return child
 
     def _create_egg(
         self,
         parent: FishAgent,
         genome: FishGenome,
+        instruction_genome: BehaviorInstructionGenome,
+        taught_skills: list[TaughtSkill],
         perception: Perception,
         energy_per: float,
         *,
         parthenogenetic: bool,
+        patch_decision: InstructionPatchDecision | None = None,
     ) -> EggEntity:
         life = genome.life_history()
         dx = self.rng.uniform(-1.0, 1.0)
@@ -928,6 +1000,9 @@ class AquagenesysSimulation:
             lineage_id=genome.lineage_id,
             species_id=genome.species_id,
             genome=genome,
+            instruction_genome=instruction_genome,
+            taught_skills=taught_skills,
+            instruction_inherited_from=parent.instruction_genome.policy_hash,
             generation=parent.generation + 1,
             created_tick=self.tick,
             age_ticks=0,
@@ -944,6 +1019,7 @@ class AquagenesysSimulation:
             state="dormant" if dormant else "gestating",
         )
         self.next_egg_id += 1
+        self._record_instruction_inheritance(parent, egg=egg, patch_decision=patch_decision, delivery="egg")
         return egg
 
     def _offspring_viability(self, parent: FishAgent, perception: Perception, energy_per: float, *, parthenogenetic: bool) -> float:
@@ -954,6 +1030,224 @@ class AquagenesysSimulation:
         if parthenogenetic:
             viability -= 0.10 + life.parthenogenesis_alleles * 0.015
         return clamp(viability, 0.08, 0.98)
+
+    def _offspring_instruction_seed(
+        self,
+        parent: FishAgent,
+        *,
+        child_generation: int,
+        parthenogenetic: bool,
+    ) -> tuple[BehaviorInstructionGenome, list[TaughtSkill], InstructionPatchDecision | None]:
+        if not self.config.instruction_inheritance_enabled:
+            return BehaviorInstructionGenome(), [], None
+        parent_hash = parent.instruction_genome.policy_hash
+        instruction = parent.instruction_genome.mutated(self.rng, parent_hash=parent_hash)
+        if parthenogenetic:
+            instruction = instruction.mutated(self.rng, parent_hash=parent_hash)
+        taught_skills = inherit_taught_skills(
+            parent.taught_skills,
+            current_generation=child_generation,
+            allowed_slots=instruction.allowed_skill_slots,
+            rng=self.rng,
+        )
+        patch_decision: InstructionPatchDecision | None = None
+        proposal = rule_generated_patch(
+            parent,
+            tick=self.tick,
+            lineage_population=self._lineage_population(parent.lineage_id),
+            adult_population=len(self.fish),
+        )
+        if proposal is not None:
+            patch_decision = self._validate_and_record_instruction_patch(parent, proposal)
+            if patch_decision.accepted and patch_decision.skill is not None:
+                if len(taught_skills) < instruction.allowed_skill_slots:
+                    taught_skills.append(patch_decision.skill)
+                taught_skills = taught_skills[: instruction.allowed_skill_slots]
+                instruction = instruction.with_skill_bias(patch_decision.skill).with_patch_result(
+                    patch_decision.patch_id,
+                    accepted=True,
+                )
+            else:
+                instruction = instruction.with_patch_result(patch_decision.patch_id, accepted=False)
+        return instruction.normalized(), taught_skills, patch_decision
+
+    def _validate_and_record_instruction_patch(self, parent: FishAgent, proposal: dict[str, Any]) -> InstructionPatchDecision:
+        self.instruction_patches_proposed += 1
+        decision = validate_instruction_patch(
+            proposal,
+            parent_id=parent.fish_id,
+            lineage_id=parent.lineage_id,
+            generation=parent.generation,
+            created_tick=self.tick,
+            allowed_skill_slots=max(0, parent.instruction_genome.allowed_skill_slots - len(parent.taught_skills)),
+        )
+        if decision.accepted:
+            self.instruction_patches_accepted += 1
+            self.teaching_events += 1
+            parent.accepted_instruction_patch_ids.append(decision.patch_id)
+            parent.instruction_genome = parent.instruction_genome.with_patch_result(decision.patch_id, accepted=True)
+            if decision.skill is not None and len(parent.taught_skills) < parent.instruction_genome.allowed_skill_slots:
+                parent.taught_skills.append(decision.skill)
+            self._event("instruction_patch_accepted", fish_id=parent.fish_id, patch_id=decision.patch_id, skill=decision.skill.skill_type if decision.skill else "")
+            event_type = "instruction_patch_acceptance"
+        else:
+            self.instruction_patches_rejected += 1
+            self.instruction_rejection_reasons[decision.reason] += 1
+            parent.rejected_instruction_patch_ids.append(decision.patch_id)
+            parent.instruction_genome = parent.instruction_genome.with_patch_result(decision.patch_id, accepted=False)
+            self._event("instruction_patch_rejected", fish_id=parent.fish_id, patch_id=decision.patch_id, reason=decision.reason)
+            event_type = "instruction_patch_rejection"
+        self._record_instruction_event(
+            event_type,
+            fish=parent,
+            patch_decision=decision,
+            proposal=proposal,
+        )
+        return decision
+
+    def _record_instruction_inheritance(
+        self,
+        parent: FishAgent,
+        *,
+        child: FishAgent | None = None,
+        egg: EggEntity | None = None,
+        patch_decision: InstructionPatchDecision | None,
+        delivery: str,
+    ) -> None:
+        self.instruction_inheritance_events += 1
+        target_policy = child.instruction_genome if child is not None else egg.instruction_genome if egg is not None else parent.instruction_genome
+        target_id = child.fish_id if child is not None else None
+        egg_id = egg.egg_id if egg is not None else None
+        entry = {
+            "tick": self.tick,
+            "event_type": "offspring_instruction_inheritance",
+            "parent_id": parent.fish_id,
+            "child_id": target_id,
+            "egg_id": egg_id,
+            "lineage_id": parent.lineage_id,
+            "delivery": delivery,
+            "parent_policy_hash": parent.instruction_genome.policy_hash,
+            "offspring_policy_hash": target_policy.policy_hash,
+            "offspring_policy_label": target_policy.policy_label,
+            "skill_count": len(child.taught_skills if child is not None else egg.taught_skills if egg is not None else []),
+            "patch_id": patch_decision.patch_id if patch_decision else "",
+            "patch_accepted": patch_decision.accepted if patch_decision else None,
+            "patch_reason": patch_decision.reason if patch_decision else "",
+        }
+        self.instruction_log.append(entry)
+        self._record_instruction_event("offspring_instruction_inheritance", fish=parent, child=child, egg=egg, patch_decision=patch_decision, extra=entry)
+
+    def _record_instruction_event(
+        self,
+        event_type: str,
+        *,
+        fish: FishAgent | None = None,
+        child: FishAgent | None = None,
+        egg: EggEntity | None = None,
+        patch_decision: InstructionPatchDecision | None = None,
+        proposal: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        source = fish or child
+        payload: dict[str, Any] = {
+            "run_id": self.run_id,
+            "tick": self.tick,
+            "event_type": event_type,
+            "fish_id": source.fish_id if source is not None else None,
+            "child_id": child.fish_id if child is not None else None,
+            "egg_id": egg.egg_id if egg is not None else None,
+            "lineage_id": (egg.lineage_id if egg is not None else source.lineage_id if source is not None else None),
+            "species_id": (egg.species_id if egg is not None else source.species_id if source is not None else None),
+            "instruction_policy_hash": (
+                egg.instruction_genome.policy_hash if egg is not None else source.instruction_genome.policy_hash if source is not None else ""
+            ),
+            "instruction_policy_label": (
+                egg.instruction_genome.policy_label if egg is not None else source.instruction_genome.policy_label if source is not None else ""
+            ),
+            "patch_decision": patch_decision.payload() if patch_decision is not None else None,
+            "proposal": proposal,
+        }
+        if extra:
+            payload.update(extra)
+        self.archive.write_lifecycle_event(payload)
+
+    def _biological_genome_hash(self, genome: FishGenome) -> str:
+        payload = genome.payload()
+        payload.pop("phenotype", None)
+        payload.pop("life_history", None)
+        return stable_hash(payload, length=16)
+
+    def _phenotype_hash(self, genome: FishGenome) -> str:
+        return stable_hash(genome.phenotype_payload(compact=True), length=16)
+
+    def _agent_code_snapshot_payload(
+        self,
+        fish: FishAgent,
+        *,
+        event_type: str,
+        parent: FishAgent | None = None,
+        egg: EggEntity | None = None,
+        death_cause: str = "",
+    ) -> dict[str, Any]:
+        return {
+            "run_id": self.run_id,
+            "tick": self.tick,
+            "event_type": event_type,
+            "fish_id": fish.fish_id,
+            "lineage_id": fish.lineage_id,
+            "species_id": fish.species_id,
+            "generation": fish.generation,
+            "parent_ids": list(fish.parent_ids),
+            "parent_policy_hash": parent.instruction_genome.policy_hash if parent is not None else fish.instruction_inherited_from,
+            "egg_id": egg.egg_id if egg is not None else None,
+            "biological_genome_hash": self._biological_genome_hash(fish.genome),
+            "phenotype_hash": self._phenotype_hash(fish.genome),
+            "instruction_policy_hash": fish.instruction_genome.policy_hash,
+            "instruction_policy_hash_short": fish.instruction_genome.policy_hash_short,
+            "instruction_policy_label": fish.instruction_genome.policy_label,
+            "taught_skill_hashes": [skill.skill_hash for skill in fish.taught_skills],
+            "accepted_instruction_patch_ids": list(fish.accepted_instruction_patch_ids[-8:]),
+            "rejected_instruction_patch_ids": list(fish.rejected_instruction_patch_ids[-8:]),
+            "created_tick": self.tick if event_type != "death_code_snapshot" else None,
+            "death_tick": self.tick if event_type == "death_code_snapshot" else None,
+            "death_cause": death_cause,
+            "summary_stats": {
+                "age": fish.age,
+                "energy": round(fish.energy, 3),
+                "health": round(fish.health, 3),
+                "recent_outcomes": list(fish.recent_outcomes[-5:]),
+                "memory_summary": fish.memory.summary(),
+            },
+        }
+
+    def _record_agent_code_snapshot(
+        self,
+        fish: FishAgent,
+        *,
+        event_type: str,
+        parent: FishAgent | None = None,
+        egg: EggEntity | None = None,
+        death_cause: str = "",
+    ) -> None:
+        payload = self._agent_code_snapshot_payload(fish, event_type=event_type, parent=parent, egg=egg, death_cause=death_cause)
+        self.agent_code_snapshots += 1
+        if event_type == "death_code_snapshot":
+            self.dead_agent_summaries[fish.fish_id] = {
+                "fish_id": fish.fish_id,
+                "lineage_id": fish.lineage_id,
+                "generation": fish.generation,
+                "death_tick": self.tick,
+                "death_cause": death_cause,
+                "biological_genome_hash": payload["biological_genome_hash"],
+                "instruction_policy_hash": payload["instruction_policy_hash"],
+                "taught_skill_hashes": payload["taught_skill_hashes"],
+                "summary_stats": payload["summary_stats"],
+            }
+            if len(self.dead_agent_summaries) > 320:
+                oldest = sorted(self.dead_agent_summaries)[:64]
+                for fish_id in oldest:
+                    self.dead_agent_summaries.pop(fish_id, None)
+        self.archive.write_lifecycle_event(payload)
 
     def _lineage_population(self, lineage_id: int) -> int:
         return sum(1 for fish in self.fish if fish.lineage_id == lineage_id)
@@ -1058,6 +1352,11 @@ class AquagenesysSimulation:
             reproductive_drive=0.01,
             generation=egg.generation,
             parent_ids=egg.parent_ids,
+            instruction_genome=egg.instruction_genome,
+            taught_skills=list(egg.taught_skills),
+            instruction_inherited_from=egg.instruction_inherited_from,
+            accepted_instruction_patch_ids=list(egg.instruction_genome.accepted_patch_ids),
+            rejected_instruction_patch_ids=list(egg.instruction_genome.rejected_patch_ids),
             model_budget=max(1, self.config.fish_model_budget - 1),
         )
         self.next_fish_id += 1
@@ -1071,6 +1370,7 @@ class AquagenesysSimulation:
         self.dead_puddle = False
         self.biosphere_state = "active"
         self._event("egg_hatched", egg_id=egg.egg_id, child=child.fish_id, lineage=egg.lineage_id)
+        self._record_agent_code_snapshot(child, event_type="egg_hatch_code_snapshot", egg=egg)
         self._archive_lifecycle_event(
             "egg_hatched",
             child=child,
@@ -1159,6 +1459,37 @@ class AquagenesysSimulation:
             "maturity_state": source.maturity_state if source is not None else None,
             "fertility_state": source.fertility_state if source is not None else None,
             "life_history": (source.life_history.payload() if source is not None else egg.genome.life_history().payload() if egg is not None else None),
+            "biological_genome_hash": (
+                self._biological_genome_hash(source.genome)
+                if source is not None
+                else self._biological_genome_hash(egg.genome)
+                if egg is not None
+                else None
+            ),
+            "phenotype_hash": (
+                self._phenotype_hash(source.genome) if source is not None else self._phenotype_hash(egg.genome) if egg is not None else None
+            ),
+            "instruction_policy_hash": (
+                source.instruction_genome.policy_hash
+                if source is not None
+                else egg.instruction_genome.policy_hash
+                if egg is not None
+                else None
+            ),
+            "instruction_policy_label": (
+                source.instruction_genome.policy_label
+                if source is not None
+                else egg.instruction_genome.policy_label
+                if egg is not None
+                else None
+            ),
+            "taught_skill_hashes": (
+                [skill.skill_hash for skill in source.taught_skills]
+                if source is not None
+                else [skill.skill_hash for skill in egg.taught_skills]
+                if egg is not None
+                else []
+            ),
             "local_environment_sample": sample,
             "reproduction_gate_result": reproduction_gate_result,
             "offspring_count": offspring_count,
@@ -1173,6 +1504,7 @@ class AquagenesysSimulation:
         self.environment.add_detritus(fish.x, fish.y, min(0.78, 0.12 + fish.energy * 0.004 + fish.radius * 0.030))
         self._event("death", fish_id=fish.fish_id, cause=cause, lineage=fish.lineage_id)
         self._archive_lifecycle_event("death", fish=fish, death_cause=cause)
+        self._record_agent_code_snapshot(fish, event_type="death_code_snapshot", death_cause=cause)
 
     def _debug_reseed_if_needed(self) -> None:
         if not self.config.debug_founder_reseed_enabled:
@@ -1295,6 +1627,8 @@ class AquagenesysSimulation:
         sources = Counter(entry["source"] for entry in self.decision_log)
         species = Counter(fish.species_id for fish in self.fish)
         metabolism = Counter(fish.genome.metabolism for fish in self.fish)
+        policy_variants = Counter(fish.instruction_genome.policy_label for fish in self.fish)
+        policy_hashes = Counter(fish.instruction_genome.policy_hash_short for fish in self.fish)
         viability_score, viable_cells = self.environmental_viability()
         return {
             "tick": self.tick,
@@ -1342,6 +1676,23 @@ class AquagenesysSimulation:
             "recent_events": list(reversed(self.events))[:16],
             "recent_reproduction_events": list(reversed(self.reproduction_log))[:16],
             "reproduction_gate_reasons": dict(self.reproduction_gate_reasons.most_common(12)),
+            "instruction": {
+                "inheritance_enabled": self.config.instruction_inheritance_enabled,
+                "model_teaching_enabled": self.config.model_teaching_enabled,
+                "patches_proposed": self.instruction_patches_proposed,
+                "patches_accepted": self.instruction_patches_accepted,
+                "patches_rejected": self.instruction_patches_rejected,
+                "teaching_events": self.teaching_events,
+                "inheritance_events": self.instruction_inheritance_events,
+                "agent_code_snapshots": self.agent_code_snapshots,
+                "dead_agent_summaries": len(self.dead_agent_summaries),
+                "policy_variants_alive": len(policy_hashes),
+                "top_policy_variants": [
+                    {"label": label, "count": count} for label, count in policy_variants.most_common(8)
+                ],
+                "rejection_reasons": dict(self.instruction_rejection_reasons.most_common(8)),
+                "recent_events": list(reversed(self.instruction_log))[:16],
+            },
             "model": {
                 "enabled": self.config.deliberation_enabled,
                 "base_url": self.config.llm_base_url,
@@ -1361,13 +1712,14 @@ class AquagenesysSimulation:
             "archive": {
                 "state_path": str(self.archive.state_path),
                 "memory_path": str(self.archive.memory_path),
+                "lifecycle_path": str(self.archive.lifecycle_path) if self.archive.lifecycle_path else "",
                 "every_ticks": self.config.archive_every_ticks,
             },
         }
 
     def state(self) -> dict[str, Any]:
         return {
-            "schema": "aquagenesys.state.v4",
+            "schema": "aquagenesys.state.v5",
             "tick": self.tick,
             "run_id": self.run_id,
             "config": {
@@ -1379,6 +1731,8 @@ class AquagenesysSimulation:
                 "fish_model_budget": self.config.fish_model_budget,
                 "model_intent_ttl": self.config.model_intent_ttl,
                 "ecology_update_interval": self.config.ecology_update_interval,
+                "instruction_inheritance_enabled": self.config.instruction_inheritance_enabled,
+                "model_teaching_enabled": self.config.model_teaching_enabled,
             },
             "environment": self.environment.payload(),
             "fish": [fish.payload() for fish in self.fish],
@@ -1389,13 +1743,15 @@ class AquagenesysSimulation:
 
     def frame_state(self) -> dict[str, Any]:
         return {
-            "schema": "aquagenesys.frame.v2",
+            "schema": "aquagenesys.frame.v3",
             "tick": self.tick,
             "run_id": self.run_id,
             "config": {
                 "seed": self._initial_seed,
                 "speed": self.speed,
                 "deliberation_enabled": self.config.deliberation_enabled,
+                "instruction_inheritance_enabled": self.config.instruction_inheritance_enabled,
+                "model_teaching_enabled": self.config.model_teaching_enabled,
             },
             "environment": {
                 "width": self.environment.width,
@@ -1436,6 +1792,20 @@ class AquagenesysSimulation:
                     "pending": len(self._pending_model_calls),
                     "intents_applied": self.model_intents_applied,
                     "last_error": self.last_model_error,
+                },
+                "instruction": {
+                    "inheritance_enabled": self.config.instruction_inheritance_enabled,
+                    "model_teaching_enabled": self.config.model_teaching_enabled,
+                    "patches_proposed": self.instruction_patches_proposed,
+                    "patches_accepted": self.instruction_patches_accepted,
+                    "patches_rejected": self.instruction_patches_rejected,
+                    "teaching_events": self.teaching_events,
+                    "inheritance_events": self.instruction_inheritance_events,
+                    "policy_variants_alive": len(
+                        {fish.instruction_genome.policy_hash_short for fish in self.fish}
+                    ),
+                    "rejection_reasons": dict(self.instruction_rejection_reasons.most_common(5)),
+                    "recent_events": list(reversed(self.instruction_log))[:6],
                 },
             },
         }

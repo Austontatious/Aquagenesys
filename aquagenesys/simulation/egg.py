@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from aquagenesys.agents.fish import FishGenome
+from aquagenesys.agents.instructions import BehaviorInstructionGenome, TaughtSkill
 
 
 @dataclass
@@ -13,6 +14,9 @@ class EggEntity:
     lineage_id: int
     species_id: str
     genome: FishGenome
+    instruction_genome: BehaviorInstructionGenome
+    taught_skills: list[TaughtSkill]
+    instruction_inherited_from: str
     generation: int
     created_tick: int
     age_ticks: int
@@ -64,10 +68,17 @@ class EggEntity:
             "state": self.state,
             "parthenogenetic": self.parthenogenetic,
             "death_cause": self.death_cause,
+            "instruction": {
+                **self.instruction_genome.compact_payload(),
+                "skill_count": len(self.taught_skills),
+                "inherited_from": self.instruction_inherited_from,
+            },
         }
         if compact:
             return payload
         payload["genome"] = self.genome.payload()
+        payload["instruction_genome"] = self.instruction_genome.policy_payload()
+        payload["taught_skills"] = [skill.payload(compact=True) for skill in self.taught_skills]
         payload["phenotype"] = self.genome.phenotype_payload(compact=True)
         payload["hatch_sensitivity"] = round(self.hatch_sensitivity, 3)
         payload["decay_rate"] = round(self.decay_rate, 5)

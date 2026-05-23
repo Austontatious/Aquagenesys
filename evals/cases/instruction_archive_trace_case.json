@@ -1,13 +1,15 @@
 {
-  "name": "v035-life-history-bottleneck",
+  "name": "v035-instruction-archive-trace",
   "input": {
-    "seed": 134,
-    "width": 36,
-    "height": 24,
-    "initial_population": 6,
-    "max_population": 28,
-    "ticks": 620,
-    "deliberation_enabled": false
+    "scenario": "archive_trace",
+    "seed": 354,
+    "width": 28,
+    "height": 18,
+    "initial_population": 4,
+    "max_population": 20,
+    "ticks": 40,
+    "deliberation_enabled": false,
+    "archive_every_ticks": 5
   },
   "expected": {
     "schema": "aquagenesys.state.v5",
@@ -16,6 +18,7 @@
     "min_population": 1,
     "requires_decisions": true,
     "model_calls": 0,
+    "min_instruction_inheritance_events": 1,
     "instruction_inheritance_enabled": true,
     "model_teaching_enabled": false
   }

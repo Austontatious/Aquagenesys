@@ -1,0 +1,77 @@
+{
+  "version": "0.3.5",
+  "date": "2026-05-23",
+  "initial_state": {
+    "branch": "main",
+    "starting_head": "185260c",
+    "working_tree_dirty_before_work": false,
+    "remote_aligned_before_work": true,
+    "viewer_running_before_work": true,
+    "viewer_port_before_work": 8770,
+    "viewer_schema_before_work": "aquagenesys.frame.v2"
+  },
+  "audit": {
+    "behavior_instruction_genome_existed_before": false,
+    "offspring_inherited_behavior_state_before": false,
+    "lifetime_memory_inherited_before": false,
+    "model_prompt": "prompts/tasks/fish_deliberation_v0.3.md",
+    "model_output_schema_changed": false,
+    "model_failures_nonblocking": true
+  },
+  "implemented": {
+    "behavior_instruction_genome": true,
+    "taught_skills": true,
+    "bounded_patch_validation": true,
+    "offspring_instruction_inheritance": true,
+    "egg_instruction_seed": true,
+    "hatchling_instruction_seed": true,
+    "parthenogenesis_instruction_seed": true,
+    "behavior_policy_integration": true,
+    "compact_agent_code_snapshots": true,
+    "archive_run_id_trace": true,
+    "ui_instruction_inspector": true
+  },
+  "schemas": {
+    "state": "aquagenesys.state.v5",
+    "frame": "aquagenesys.frame.v3"
+  },
+  "safety": {
+    "runtime_code_editing": false,
+    "shell_access": false,
+    "file_access": false,
+    "network_access": false,
+    "tool_access": false,
+    "model_teaching_enabled_default": false,
+    "live_lexi_required": false
+  },
+  "validation": {
+    "focused_pytest": "35 passed during implementation",
+    "pytest_tests": "44 passed",
+    "eval_check": "passed",
+    "eval_runner": "passed",
+    "make_lint": "passed",
+    "codex_standards": "9 passed",
+    "node_check": "passed",
+    "browser_smoke": {
+      "url": "http://127.0.0.1:8772",
+      "title": "Aquagenesys v0.3.5",
+      "canvas_nonblank": true,
+      "instruction_metrics_visible": true,
+      "fish_inspector_instruction_fields": true,
+      "console_errors": 0,
+      "mobile_horizontal_overflow": false
+    }
+  },
+  "runtime_after_work": {
+    "smoke_tmux_session": "aquagenesys-v035",
+    "smoke_port": 8772,
+    "existing_v034_port": 8770
+  },
+  "known_limitations": [
+    "Instruction inheritance is single-parent.",
+    "Model-generated teaching is disabled by default.",
+    "Taught skills are structured tactical hints, not natural-language programs.",
+    "No full lineage tree UI yet."
+  ],
+  "recommended_next_patch": "v0.3.6 behavior/evolution observability and lineage trace viewer"
+}

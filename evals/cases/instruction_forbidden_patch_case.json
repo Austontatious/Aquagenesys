@@ -1,12 +1,13 @@
 {
-  "name": "v035-life-history-bottleneck",
+  "name": "v035-forbidden-instruction-patch",
   "input": {
-    "seed": 134,
-    "width": 36,
-    "height": 24,
-    "initial_population": 6,
-    "max_population": 28,
-    "ticks": 620,
+    "scenario": "forbidden_patch",
+    "seed": 352,
+    "width": 28,
+    "height": 18,
+    "initial_population": 4,
+    "max_population": 16,
+    "ticks": 24,
     "deliberation_enabled": false
   },
   "expected": {
@@ -16,6 +17,7 @@
     "min_population": 1,
     "requires_decisions": true,
     "model_calls": 0,
+    "min_instruction_patches_rejected": 1,
     "instruction_inheritance_enabled": true,
     "model_teaching_enabled": false
   }

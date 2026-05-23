@@ -74,7 +74,7 @@ class CodexStandardsConfig:
 
 @dataclass(frozen=True)
 class AquagenesysRuntimeConfig:
-    """Typed runtime config for the v0.3.4 local ecology service."""
+    """Typed runtime config for the v0.3.5 local ecology service."""
 
     host: str
     port: int
@@ -101,6 +101,8 @@ class AquagenesysRuntimeConfig:
     trace_jsonl_path: str
     archive_dir: str
     archive_every_ticks: int
+    instruction_inheritance_enabled: bool
+    model_teaching_enabled: bool
 
     @classmethod
     def from_env(cls, *, prefix: str = "AQUAGENESYS_") -> "AquagenesysRuntimeConfig":
@@ -136,4 +138,6 @@ class AquagenesysRuntimeConfig:
             archive_dir=os.getenv(f"{prefix}ARCHIVE_DIR", "/tmp/aquagenesys-v03").strip()
             or "/tmp/aquagenesys-v03",
             archive_every_ticks=_env_int(f"{prefix}ARCHIVE_EVERY_TICKS", 25),
+            instruction_inheritance_enabled=_env_bool(f"{prefix}INSTRUCTION_INHERITANCE_ENABLED", True),
+            model_teaching_enabled=_env_bool(f"{prefix}MODEL_TEACHING_ENABLED", False),
         )

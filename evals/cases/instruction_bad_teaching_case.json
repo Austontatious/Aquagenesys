@@ -1,12 +1,13 @@
 {
-  "name": "v035-life-history-bottleneck",
+  "name": "v035-bad-teaching-remains-biological",
   "input": {
-    "seed": 134,
-    "width": 36,
-    "height": 24,
+    "scenario": "bad_teaching",
+    "seed": 353,
+    "width": 34,
+    "height": 22,
     "initial_population": 6,
-    "max_population": 28,
-    "ticks": 620,
+    "max_population": 32,
+    "ticks": 80,
     "deliberation_enabled": false
   },
   "expected": {
@@ -16,6 +17,8 @@
     "min_population": 1,
     "requires_decisions": true,
     "model_calls": 0,
+    "min_instruction_patches_accepted": 1,
+    "min_instruction_inheritance_events": 1,
     "instruction_inheritance_enabled": true,
     "model_teaching_enabled": false
   }
