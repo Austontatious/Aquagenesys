@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aquagenesys"
-version = "0.3.8"
-description = "A real-time 2D dirty-puddle ecology with an observatory UX for lineage, behavior, and reproduction visibility."
+version = "0.3.9"
+description = "A real-time 2D dirty-puddle ecology with observatory UX, lineage genealogy, and bounded story rendering."
 requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.110,<1",

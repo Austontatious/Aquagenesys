@@ -277,41 +277,83 @@ button:hover {
   margin-top: 16px;
 }
 
-.genealogy-heading {
+.lineage-story {
+  max-width: 1180px;
+  padding: 18px 0 8px;
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+}
+
+.genealogy-heading,
+.story-heading {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 420px);
   gap: 14px;
   align-items: start;
 }
 
-.genealogy-heading p {
+.genealogy-heading p,
+.story-heading p {
   margin: 8px 0 0;
   color: var(--text);
   font-size: 15px;
 }
 
 .genealogy-summary,
-.genealogy-grid {
+.genealogy-grid,
+.story-summary,
+.story-grid,
+.story-question-grid {
   display: grid;
   gap: 8px;
 }
 
-.genealogy-summary {
+.genealogy-summary,
+.story-summary {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0;
 }
 
 .genealogy-summary div,
-.genealogy-list li {
+.genealogy-list li,
+.story-summary div,
+.story-question-grid article {
   padding: 9px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--panel-3);
 }
 
-.genealogy-grid {
+.genealogy-grid,
+.story-grid {
   grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
   margin-top: 14px;
+}
+
+.story-question-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin-top: 14px;
+}
+
+.story-question-grid article {
+  min-height: 130px;
+}
+
+.story-question-grid h3 {
+  color: var(--accent);
+}
+
+.story-question-grid p {
+  margin: 8px 0;
+  color: var(--text);
+  line-height: 1.42;
+}
+
+.story-question-grid em {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
 }
 
 .genealogy-list li {
@@ -544,11 +586,15 @@ li b {
   }
 
   .genealogy-heading,
-  .genealogy-grid {
+  .genealogy-grid,
+  .story-heading,
+  .story-grid,
+  .story-question-grid {
     grid-template-columns: 1fr;
   }
 
-  .genealogy-summary {
+  .genealogy-summary,
+  .story-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

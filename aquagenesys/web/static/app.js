@@ -152,6 +152,7 @@ function applyState(state) {
   updateTelemetry(state.telemetry);
   updateDashboard(state.dashboard, state.telemetry);
   updateGenealogy(state.genealogy || {});
+  updateLineageStory(state.lineage_story || {});
 }
 
 function applyFrame(frame) {
@@ -898,6 +899,7 @@ function updateInspector() {
   document.getElementById("fishExplain").textContent = explainFish(fish);
   updateCompare();
   updateGenealogy(latestState?.genealogy || {});
+  updateLineageStory(latestState?.lineage_story || {});
 }
 
 function findFish(id) {
@@ -1024,6 +1026,80 @@ function updateGenealogy(genealogy) {
     `${item.tick} ${labelize(item.delivery)}`,
     `P${item.parent_id} -> ${item.child_id ? `#${item.child_id}` : `egg ${item.egg_id}`} ${labelize(item.policy_label)}`,
   ]);
+}
+
+function updateLineageStory(story) {
+  if (!story?.summary) return;
+  const selected = findFish(selectedFishId) || findFish(hoverFishId);
+  const selectedLineage = selected?.lineage ?? story.summary.primary_lineage_id ?? null;
+  const stories = story.lineage_stories || [];
+  const current = stories.find((item) => item.lineage_id === selectedLineage) || stories[0] || null;
+  document.getElementById("lineageStorySelected").textContent = selectedLineage === null ? "-" : `L${selectedLineage}`;
+  document.getElementById("lineageStoryCount").textContent = story.summary.story_count ?? stories.length;
+  document.getElementById("lineageStoryPhase").textContent = labelize(story.summary.recovery_phase || "-");
+  document.getElementById("lineageStoryHeadline").textContent =
+    current?.headline || story.global_story?.recovery_mechanism || "No bounded lineage story is available yet.";
+  const questions = current ? storyQuestionsFor(current) : story.questions || [];
+  fillStoryQuestions("lineageStoryQuestions", questions);
+  fillList("lineageStoryBiology", current?.biology_track || [], (item) => [
+    `${labelize(item.label)} ${item.node}`,
+    `${item.signature} / ${labelize(item.body)} / ${labelize(item.egg_strategy)}`,
+  ]);
+  fillList("lineageStoryBehavior", current?.behavior_track || [], (item) => [
+    `${labelize(item.label)} ${item.node}`,
+    `${labelize(item.policy_label)} / ${item.policy_hash_short || "-"} / skills ${item.taught_skill_count ?? 0}`,
+  ]);
+  const attempts = [...(current?.attempts || []), ...(current?.losses || []).map((item) => ({
+    tick: "loss",
+    kind: item.cause,
+    detail: `${item.count} sampled`,
+  }))];
+  fillStoryTimeline("lineageStoryAttempts", attempts);
+}
+
+function storyQuestionsFor(story) {
+  const labels = [
+    ["Who survived?", "who_survived"],
+    ["What did they inherit?", "inherited"],
+    ["What changed?", "changed"],
+    ["What did they try?", "tried"],
+    ["What killed the others?", "losses"],
+    ["Why did this lineage persist?", "persisted"],
+  ];
+  return labels.map(([question, key]) => ({
+    question,
+    answer: story.answers?.[key] || "-",
+    evidence: story.evidence || [],
+    lineage_id: story.lineage_id,
+  }));
+}
+
+function fillStoryQuestions(id, questions) {
+  const node = document.getElementById(id);
+  if (!node) return;
+  node.innerHTML = "";
+  for (const item of questions.slice(0, 6)) {
+    const article = document.createElement("article");
+    const heading = document.createElement("h3");
+    const answer = document.createElement("p");
+    const evidence = document.createElement("em");
+    heading.textContent = item.question;
+    answer.textContent = item.answer;
+    evidence.textContent = (item.evidence || []).slice(0, 2).join(" | ");
+    article.append(heading, answer, evidence);
+    node.appendChild(article);
+  }
+}
+
+function fillStoryTimeline(id, items) {
+  const rows = (items || []).slice(0, 10).map((item) => ({
+    tick: item.tick ?? "",
+    type: "story",
+    title: item.kind || item.cause || "event",
+    detail: item.detail || "",
+    severity: String(item.kind || item.cause || "").includes("died") || String(item.kind || item.cause || "").includes("death") ? "warn" : "info",
+  }));
+  fillTimeline(id, rows);
 }
 
 function fillGenealogyPath(id, nodes) {

@@ -1,0 +1,56 @@
+{
+  "schema": "aquagenesys.v039.report.v1",
+  "version": "0.3.9",
+  "starting_head": "1d1f5e0",
+  "state_schema": "aquagenesys.state.v9",
+  "frame_schema": "aquagenesys.frame.v3",
+  "dashboard_schema": "aquagenesys.dashboard.v2",
+  "genealogy_schema": "aquagenesys.genealogy.v1",
+  "lineage_story_schema": "aquagenesys.lineage_story.v1",
+  "runtime_before": {
+    "tmux": "aquagenesys-v038",
+    "port": 8770,
+    "pid": 2728757
+  },
+  "implementation": {
+    "backend_module": "aquagenesys/simulation/lineage_story.py",
+    "api_state_bumped": true,
+    "frame_payload_changed": false,
+    "model_dependency": false,
+    "simulation_mechanics_changed": false,
+    "questions_answered": [
+      "Who survived?",
+      "What did they inherit?",
+      "What changed?",
+      "What did they try?",
+      "What killed the others?",
+      "Why did this lineage persist?"
+    ]
+  },
+  "ui": {
+    "lineage_story_panel": true,
+    "follows_selected_or_hovered_lineage": true,
+    "biology_behavior_attempt_loss_tracks": true
+  },
+  "targeted_validation": {
+    "pytest_lineage_genealogy_dashboard": "9 passed",
+    "node_check_app_js": "pass",
+    "py_compile_story_engine": "pass"
+  },
+  "full_validation": {
+    "pytest_tests": "54 passed",
+    "evals_check": "pass",
+    "evals_runner": "pass",
+    "recovery_assays_json": "pass",
+    "make_lint": "pass",
+    "codex_standards": "9 passed",
+    "node_check_app_js": "pass",
+    "browser_smoke": "v0.3.9 loaded, lineage story region visible, no console warnings/errors before temporary server shutdown, mobile snapshot within viewport"
+  },
+  "known_limitations": [
+    "bounded in-memory genealogy only",
+    "sampled dead ancestors only",
+    "not a full species-tree graph database",
+    "deterministic compact prose, not model-written narrative"
+  ]
+}

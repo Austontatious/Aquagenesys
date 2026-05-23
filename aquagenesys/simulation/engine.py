@@ -23,6 +23,7 @@ from aquagenesys.environment.puddle import EnvironmentConfig, PuddleEnvironment
 from aquagenesys.simulation.dashboard import build_observatory_dashboard
 from aquagenesys.simulation.egg import EggEntity
 from aquagenesys.simulation.genealogy import build_genealogy
+from aquagenesys.simulation.lineage_story import build_lineage_story
 from aquagenesys.storage import FishArchive
 
 
@@ -1731,8 +1732,10 @@ class AquagenesysSimulation:
 
     def state(self) -> dict[str, Any]:
         telemetry = self.telemetry()
+        dashboard = self.dashboard(telemetry)
+        genealogy = self.genealogy(telemetry)
         return {
-            "schema": "aquagenesys.state.v8",
+            "schema": "aquagenesys.state.v9",
             "tick": self.tick,
             "run_id": self.run_id,
             "config": {
@@ -1752,8 +1755,9 @@ class AquagenesysSimulation:
             "eggs": [egg.payload() for egg in self.eggs],
             "organisms": [fish.payload() for fish in self.fish],
             "telemetry": telemetry,
-            "dashboard": self.dashboard(telemetry),
-            "genealogy": self.genealogy(telemetry),
+            "dashboard": dashboard,
+            "genealogy": genealogy,
+            "lineage_story": self.lineage_story(telemetry, dashboard=dashboard, genealogy=genealogy),
         }
 
     def dashboard(self, telemetry: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1782,6 +1786,28 @@ class AquagenesysSimulation:
             reproduction_log=self.reproduction_log,
             events=self.events,
             telemetry=telemetry or self.telemetry(),
+        )
+
+    def lineage_story(
+        self,
+        telemetry: dict[str, Any] | None = None,
+        *,
+        dashboard: dict[str, Any] | None = None,
+        genealogy: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        current_telemetry = telemetry or self.telemetry()
+        current_dashboard = dashboard or self.dashboard(current_telemetry)
+        current_genealogy = genealogy or self.genealogy(current_telemetry)
+        return build_lineage_story(
+            tick=self.tick,
+            run_id=self.run_id,
+            telemetry=current_telemetry,
+            dashboard=current_dashboard,
+            genealogy=current_genealogy,
+            events=self.events,
+            reproduction_log=self.reproduction_log,
+            instruction_log=self.instruction_log,
+            dead_agent_summaries=self.dead_agent_summaries,
         )
 
     def frame_state(self) -> dict[str, Any]:

@@ -19,7 +19,7 @@ def test_state_exposes_bounded_genealogy_without_frame_bloat() -> None:
     state = sim.state()
     frame = sim.frame_state()
     genealogy = state["genealogy"]
-    assert state["schema"] == "aquagenesys.state.v8"
+    assert state["schema"] == "aquagenesys.state.v9"
     assert genealogy["schema"] == "aquagenesys.genealogy.v1"
     assert genealogy["summary"]["live_adults"] == state["telemetry"]["adult_population"]
     assert genealogy["nodes"]

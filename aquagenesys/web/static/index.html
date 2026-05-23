@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Aquagenesys v0.3.8</title>
+    <title>Aquagenesys v0.3.9</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
@@ -13,7 +13,7 @@
         <section class="puddle" aria-label="Aquagenesys puddle viewer">
           <canvas id="pond" width="1200" height="760"></canvas>
           <div class="hud">
-            <b>Aquagenesys v0.3.8</b>
+            <b>Aquagenesys v0.3.9</b>
             <span id="status">connecting</span>
           </div>
           <div id="puddleState" class="state-banner" hidden>DEAD PUDDLE - chemistry still running</div>
@@ -117,6 +117,35 @@
               <div>
                 <h3>Policy Inheritance</h3>
                 <ul id="genealogyPolicyTrail" class="timeline genealogy-list"></ul>
+              </div>
+            </div>
+          </section>
+
+          <section class="lineage-story" aria-label="Lineage story renderer">
+            <div class="story-heading">
+              <div>
+                <h2>Lineage Story</h2>
+                <p id="lineageStoryHeadline">Waiting for lineage story evidence.</p>
+              </div>
+              <dl class="story-summary">
+                <div><dt>Story lineage</dt><dd id="lineageStorySelected">-</dd></div>
+                <div><dt>Stories</dt><dd id="lineageStoryCount">0</dd></div>
+                <div><dt>Phase</dt><dd id="lineageStoryPhase">-</dd></div>
+              </dl>
+            </div>
+            <div class="story-question-grid" id="lineageStoryQuestions"></div>
+            <div class="story-grid">
+              <div>
+                <h3>Biology Inheritance</h3>
+                <ul id="lineageStoryBiology" class="genealogy-list"></ul>
+              </div>
+              <div>
+                <h3>Behavior Inheritance</h3>
+                <ul id="lineageStoryBehavior" class="genealogy-list"></ul>
+              </div>
+              <div>
+                <h3>Attempts and Losses</h3>
+                <ul id="lineageStoryAttempts" class="timeline genealogy-list"></ul>
               </div>
             </div>
           </section>
