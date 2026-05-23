@@ -191,7 +191,31 @@ function updateTelemetry(telemetry) {
   const instruction = telemetry.instruction || {};
   document.getElementById("policyVariants").textContent = instruction.policy_variants_alive ?? 0;
   document.getElementById("teachingEvents").textContent = instruction.teaching_events ?? 0;
+  updateAiStatus(telemetry);
   recordHistory(telemetry);
+}
+
+function updateAiStatus(telemetry) {
+  const node = document.getElementById("aiStatus");
+  if (!node) return;
+  const model = telemetry?.model || {};
+  if (!model.enabled) {
+    node.textContent = "AI deliberation unavailable";
+    return;
+  }
+  if ((model.calls || 0) <= 0) {
+    node.textContent = "AI deliberation enabled; no calls yet";
+    return;
+  }
+  if ((model.pending || 0) > 0) {
+    node.textContent = "AI deliberation enabled; model calls active";
+    return;
+  }
+  if ((model.failures || 0) > 0 && (model.successes || 0) <= 0) {
+    node.textContent = "AI deliberation enabled; recent calls failed";
+    return;
+  }
+  node.textContent = "AI deliberation enabled; bounded reflections visible";
 }
 
 function recordHistory(telemetry) {
@@ -236,6 +260,7 @@ function updateDashboard(dashboard, telemetry) {
   document.getElementById("reproductionPressure").textContent = labelize(population.reproduction_pressure || "unknown");
   document.getElementById("eggBankResilience").textContent = labelize(population.egg_bank_resilience || "none");
   document.getElementById("biosphereState").textContent = labelize(population.biosphere_state || telemetry?.biosphere_state || "unknown");
+  updateRecoveryEvidence(dashboard.recovery || {});
   fillList("topLineages", dashboard.lineages?.top || [], (item) => [
     `Lineage ${item.lineage_id}`,
     `${item.adults} adults / ${item.viable_eggs} eggs / ${labelize(item.policy_label)}`,
@@ -267,6 +292,18 @@ function updateDashboard(dashboard, telemetry) {
     ],
     (item) => [labelize(item[0]), item[1]],
   );
+}
+
+function updateRecoveryEvidence(recovery) {
+  document.getElementById("recoveryPhase").textContent = labelize(recovery.phase || "warming");
+  document.getElementById("recoveryMechanism").textContent = labelize(recovery.mechanism || "not yet visible");
+  document.getElementById("recoveryAdultTrend").textContent = labelize(recovery.adult_trend || "-");
+  document.getElementById("recoveryEggTrend").textContent = labelize(recovery.egg_trend || "-");
+  document.getElementById("recoveryResource").textContent = labelize(recovery.resource_rebound || "-");
+  document.getElementById("recoveryCrowding").textContent = labelize(recovery.crowding_state || "-");
+  document.getElementById("recoveryGate").textContent = labelize(recovery.gate_pressure || "none");
+  document.getElementById("recoveryPolicy").textContent = labelize(recovery.dominant_policy || "none");
+  fillPlainList("recoveryEvidence", recovery.evidence || []);
 }
 
 function fillList(id, items, render) {

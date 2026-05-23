@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Aquagenesys v0.3.6</title>
+    <title>Aquagenesys v0.3.7</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
@@ -13,7 +13,7 @@
         <section class="puddle" aria-label="Aquagenesys puddle viewer">
           <canvas id="pond" width="1200" height="760"></canvas>
           <div class="hud">
-            <b>Aquagenesys v0.3.6</b>
+            <b>Aquagenesys v0.3.7</b>
             <span id="status">connecting</span>
           </div>
           <div id="puddleState" class="state-banner" hidden>DEAD PUDDLE - chemistry still running</div>
@@ -56,6 +56,21 @@
             </div>
           </section>
 
+          <section class="recovery-evidence" aria-label="Recovery evidence">
+            <h2>Recovery Evidence</h2>
+            <div class="recovery-grid">
+              <div><dt>Phase</dt><dd id="recoveryPhase">-</dd></div>
+              <div><dt>Mechanism</dt><dd id="recoveryMechanism">-</dd></div>
+              <div><dt>Adults</dt><dd id="recoveryAdultTrend">-</dd></div>
+              <div><dt>Egg bank</dt><dd id="recoveryEggTrend">-</dd></div>
+              <div><dt>Resources</dt><dd id="recoveryResource">-</dd></div>
+              <div><dt>Crowding</dt><dd id="recoveryCrowding">-</dd></div>
+              <div><dt>Gate pressure</dt><dd id="recoveryGate">-</dd></div>
+              <div><dt>Dominant policy</dt><dd id="recoveryPolicy">-</dd></div>
+            </div>
+            <ul id="recoveryEvidence" class="dense-list"></ul>
+          </section>
+
           <section class="observatory-grid">
             <div>
               <h2>Lineage Observatory</h2>
@@ -91,8 +106,12 @@
           </label>
           <label class="toggle">
             <input id="deliberation" type="checkbox" checked />
-            <span>Lexi deliberation</span>
+            <span>AI deliberation</span>
           </label>
+          <p class="control-help" id="aiDeliberationHelp">
+            Allows fish to request bounded AI reflections for behavior and teaching. Suggestions are validated, sandboxed, and inherited only through lineage - never through code edits or tools.
+          </p>
+          <p class="control-status" id="aiStatus">AI deliberation status unknown</p>
           <div class="buttons">
             <button id="reset" type="button">Reset</button>
             <button id="randomize" type="button">Randomize</button>

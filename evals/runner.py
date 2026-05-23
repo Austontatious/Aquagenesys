@@ -136,7 +136,7 @@ def run_eval() -> int:
             failures.append("schema mismatch")
         if expected.get("frame_schema") and frame.get("schema") != expected.get("frame_schema"):
             failures.append("frame schema mismatch")
-        if expected.get("requires_dashboard") and state.get("dashboard", {}).get("schema") != "aquagenesys.dashboard.v1":
+        if expected.get("requires_dashboard") and state.get("dashboard", {}).get("schema") != "aquagenesys.dashboard.v2":
             failures.append("missing observatory dashboard")
         if expected.get("requires_narrator") and not state.get("dashboard", {}).get("narrator", {}).get("headline"):
             failures.append("missing ecology narrator")
@@ -201,7 +201,7 @@ def run_eval() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Aquagenesys v0.3.6 eval harness")
+    parser = argparse.ArgumentParser(description="Aquagenesys v0.3.7 eval harness")
     parser.add_argument("--check", action="store_true", help="validate eval scaffolding only")
     args = parser.parse_args(argv)
     if args.check:

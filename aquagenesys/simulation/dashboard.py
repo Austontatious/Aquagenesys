@@ -17,6 +17,7 @@ def build_observatory_dashboard(
     instruction_log: Iterable[dict[str, Any]],
     decision_log: Iterable[dict[str, Any]],
     dead_agent_summaries: dict[int, dict[str, Any]],
+    field_averages: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Build a compact, deterministic dashboard for the observatory UI."""
 
@@ -30,12 +31,22 @@ def build_observatory_dashboard(
     diagnostics = _diagnostics_summary(telemetry)
     population = _population_summary(telemetry, recent_events)
     timeline = _timeline(recent_events, recent_reproduction, recent_instruction, recent_decisions)
-    narrator = _narrator(telemetry, population, lineages, policies, teaching, diagnostics, timeline)
+    recovery = _recovery_summary(
+        telemetry=telemetry,
+        population=population,
+        lineages=lineages,
+        policies=policies,
+        diagnostics=diagnostics,
+        timeline=timeline,
+        field_averages=field_averages or {},
+    )
+    narrator = _narrator(telemetry, population, lineages, policies, teaching, diagnostics, timeline, recovery)
     return {
-        "schema": "aquagenesys.dashboard.v1",
+        "schema": "aquagenesys.dashboard.v2",
         "tick": tick,
         "run_id": run_id,
         "narrator": narrator,
+        "recovery": recovery,
         "population": population,
         "lineages": lineages,
         "policies": policies,
@@ -47,6 +58,111 @@ def build_observatory_dashboard(
             "dead_agent_summaries": len(dead_agent_summaries),
             "agent_code_snapshots": telemetry.get("instruction", {}).get("agent_code_snapshots", 0),
         },
+    }
+
+
+def _recovery_summary(
+    *,
+    telemetry: dict[str, Any],
+    population: dict[str, Any],
+    lineages: dict[str, Any],
+    policies: dict[str, Any],
+    diagnostics: dict[str, Any],
+    timeline: list[dict[str, Any]],
+    field_averages: dict[str, float],
+) -> dict[str, Any]:
+    adults = population["adults"]
+    viable = population["viable_eggs"]
+    dormant = population["dormant_eggs"]
+    recent_births = population["recent_births"]
+    recent_deaths = population["recent_deaths"]
+    state = population["biosphere_state"]
+    resource_score = round(
+        float(field_averages.get("food", 0.0)) * 0.36
+        + float(field_averages.get("plankton", 0.0)) * 0.30
+        + float(field_averages.get("nutrients", 0.0)) * 0.18
+        + float(field_averages.get("balance", 0.0)) * 0.16,
+        4,
+    )
+    crowding = float(field_averages.get("population_pressure", 0.0))
+    balance = float(field_averages.get("balance", 0.0))
+    phase = "stable"
+    if state == "extinct":
+        phase = "extinct"
+    elif state == "dormant":
+        phase = "dormant"
+    elif adults <= 3 and viable <= 1:
+        phase = "bottleneck"
+    elif recent_births > 0 and viable > 0 and recent_births >= recent_deaths:
+        phase = "recovering"
+    elif balance > 0.62 and resource_score > 0.42 and adults <= 8:
+        phase = "rebound"
+    elif population["trend"] == "declining":
+        phase = "declining"
+
+    if recent_births > recent_deaths:
+        adult_trend = "recovering"
+    elif recent_deaths > recent_births:
+        adult_trend = "declining"
+    elif adults <= 3:
+        adult_trend = "bottlenecked"
+    else:
+        adult_trend = "stable"
+
+    if viable == 0:
+        egg_trend = "absent"
+    elif dormant > 0:
+        egg_trend = "dormant reserve"
+    elif recent_births > 0:
+        egg_trend = "hatching"
+    else:
+        egg_trend = "viable reserve"
+
+    gate = diagnostics["gate_failures"][0]["reason"] if diagnostics["gate_failures"] else "none"
+    resource_state = "resource bloom" if balance > 0.64 else "resource opportunity" if resource_score > 0.42 else "resource limited"
+    crowding_state = "locally crowded" if crowding > 0.18 else "low pressure"
+    dominant_policy = (policies.get("dominant") or {}).get("label", "none")
+    mechanism = "none"
+    if phase == "dormant":
+        mechanism = "egg bank preserves lineage continuity"
+    elif recent_births > 0:
+        mechanism = "recent births or hatches"
+    elif viable > 0:
+        mechanism = "viable egg reserve"
+    elif resource_score > 0.42:
+        mechanism = "resource rebound opportunity"
+    elif adults > 0:
+        mechanism = "adult survivor persistence"
+    evidence = [
+        f"adults={adults}",
+        f"viable_eggs={viable}",
+        f"dormant_eggs={dormant}",
+        f"recent_births={recent_births}",
+        f"recent_deaths={recent_deaths}",
+        f"top_gate={gate.replace('_', ' ')}",
+        f"resource={resource_state}",
+        f"crowding={crowding_state}",
+    ]
+    recent_recovery_events = [
+        item
+        for item in timeline
+        if item["title"] in {"birth", "egg clutch", "egg hatched", "dormant biosphere", "resource bloom"}
+        or item["type"] in {"reproduction", "ecology"}
+    ][:6]
+    return {
+        "phase": phase,
+        "adult_trend": adult_trend,
+        "egg_trend": egg_trend,
+        "lineage_survival": lineages["diversity"],
+        "dominant_policy": dominant_policy,
+        "egg_bank_contribution": "strong" if viable >= max(4, adults // 2) else "moderate" if viable else "none",
+        "resource_rebound": resource_state,
+        "crowding_state": crowding_state,
+        "gate_pressure": gate,
+        "mechanism": mechanism,
+        "resource_score": resource_score,
+        "recent_recovery_events": recent_recovery_events,
+        "evidence": evidence,
     }
 
 
@@ -296,6 +412,7 @@ def _narrator(
     teaching: dict[str, Any],
     diagnostics: dict[str, Any],
     timeline: list[dict[str, Any]],
+    recovery: dict[str, Any],
 ) -> dict[str, Any]:
     adults = population["adults"]
     viable = population["viable_eggs"]
@@ -304,8 +421,10 @@ def _narrator(
         headline = f"No adults are active, but {viable} viable eggs keep the puddle dormant rather than extinct."
     elif state == "extinct":
         headline = "The puddle is biologically extinct; chemistry continues but no viable adults or eggs remain."
-    elif population["trend"] == "recovering":
-        headline = f"The active puddle is recovering: {adults} adults are supported by recent births or hatches."
+    elif recovery["phase"] in {"recovering", "rebound"}:
+        headline = f"The puddle is {recovery['phase']}: {adults} adults are supported by {recovery['mechanism']}."
+    elif recovery["phase"] == "bottleneck":
+        headline = f"The puddle is bottlenecked: {adults} adults remain and egg-bank contribution is {recovery['egg_bank_contribution']}."
     elif population["trend"] == "declining":
         headline = f"The active puddle is under pressure: {adults} adults remain and recent losses outnumber recoveries."
     else:
@@ -314,6 +433,9 @@ def _narrator(
     points: list[str] = []
     resilience = population["egg_bank_resilience"]
     points.append(f"Egg bank resilience is {resilience}: {viable} viable eggs, {population['dormant_eggs']} dormant.")
+    points.append(
+        f"Recovery evidence: phase {recovery['phase']}, {recovery['resource_rebound']}, {recovery['crowding_state']}, gate pressure {str(recovery['gate_pressure']).replace('_', ' ')}."
+    )
     dominant_lineage = lineages.get("dominant")
     if dominant_lineage:
         points.append(

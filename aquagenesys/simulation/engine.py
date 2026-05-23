@@ -1721,7 +1721,7 @@ class AquagenesysSimulation:
     def state(self) -> dict[str, Any]:
         telemetry = self.telemetry()
         return {
-            "schema": "aquagenesys.state.v6",
+            "schema": "aquagenesys.state.v7",
             "tick": self.tick,
             "run_id": self.run_id,
             "config": {
@@ -1756,6 +1756,7 @@ class AquagenesysSimulation:
             instruction_log=self.instruction_log,
             decision_log=self.decision_log,
             dead_agent_summaries=self.dead_agent_summaries,
+            field_averages=self.environment.averages(),
         )
 
     def frame_state(self) -> dict[str, Any]:

@@ -19,11 +19,13 @@ def test_state_includes_grounded_observatory_dashboard() -> None:
     state = sim.state()
     dashboard = state["dashboard"]
     telemetry = state["telemetry"]
-    assert state["schema"] == "aquagenesys.state.v6"
-    assert dashboard["schema"] == "aquagenesys.dashboard.v1"
+    assert state["schema"] == "aquagenesys.state.v7"
+    assert dashboard["schema"] == "aquagenesys.dashboard.v2"
     assert dashboard["population"]["adults"] == telemetry["adult_population"]
     assert dashboard["population"]["lineages"] == telemetry["lineage_count"]
     assert dashboard["narrator"]["headline"]
+    assert dashboard["recovery"]["phase"]
+    assert dashboard["recovery"]["evidence"]
     assert str(telemetry["adult_population"]) in dashboard["narrator"]["headline"]
     assert dashboard["lineages"]["top"]
     assert dashboard["policies"]["families"]
@@ -63,6 +65,8 @@ def test_dormant_dashboard_narrates_viable_egg_bank() -> None:
     dashboard = sim.state()["dashboard"]
     assert dashboard["population"]["biosphere_state"] == "dormant"
     assert dashboard["population"]["viable_eggs"] > 0
+    assert dashboard["recovery"]["phase"] == "dormant"
+    assert dashboard["recovery"]["mechanism"] == "egg bank preserves lineage continuity"
     assert "viable eggs" in dashboard["narrator"]["headline"]
     assert dashboard["lineages"]["diversity"] == "dormant"
     sim.close()

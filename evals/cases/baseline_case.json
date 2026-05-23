@@ -1,5 +1,5 @@
 {
-  "name": "v036-agent-fish-observatory-smoke",
+  "name": "v037-agent-fish-recovery-observatory-smoke",
   "input": {
     "seed": 101,
     "width": 34,
@@ -10,7 +10,7 @@
     "deliberation_enabled": false
   },
   "expected": {
-    "schema": "aquagenesys.state.v6",
+    "schema": "aquagenesys.state.v7",
     "frame_schema": "aquagenesys.frame.v3",
     "max_frame_state_ratio": 0.55,
     "min_population": 1,
