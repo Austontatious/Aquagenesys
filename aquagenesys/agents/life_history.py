@@ -86,6 +86,12 @@ def derive_life_history(genome: LifeHistoryGenome) -> LifeHistoryProfile:
     speed = clamp(genome.max_speed / 1.25)
     dormancy = clamp(genome.dormancy_bias)
     mutation_load = clamp(genome.mutation_load)
+    morphology_affordances = getattr(genome, "morphology_affordances", None)
+    affordances = morphology_affordances() if callable(morphology_affordances) else None
+    growth_burden = clamp(getattr(affordances, "growth_cost", 0.0) if affordances is not None else 0.0)
+    reproduction_burden = clamp(getattr(affordances, "reproduction_cost", 0.0) if affordances is not None else 0.0)
+    juvenile_fragility = clamp(getattr(affordances, "juvenile_fragility", 0.0) if affordances is not None else 0.0)
+    viability_index = clamp(getattr(affordances, "viability_index", 0.72) if affordances is not None else 0.72)
 
     if genome.metabolism in {"grazer", "filter", "scavenger"}:
         base_maturity = 140
@@ -115,20 +121,21 @@ def derive_life_history(genome: LifeHistoryGenome) -> LifeHistoryProfile:
         juvenile_investment = 0.54
         investment = 0.38
 
-    maturity = int(base_maturity + size * 170 - reproduction * 115 - speed * 40)
+    morphology_delay = growth_burden * 70 + reproduction_burden * 34 + juvenile_fragility * 36 - viability_index * 22
+    maturity = int(base_maturity + size * 170 - reproduction * 115 - speed * 40 + morphology_delay)
     maturity = max(80, min(820, maturity))
-    lifespan = int(base_lifespan + size * 720 - reproduction * 240 + genome.risk_tolerance * 120)
+    lifespan = int(base_lifespan + size * 720 - reproduction * 240 + genome.risk_tolerance * 120 - juvenile_fragility * 100 - max(0.0, 0.46 - viability_index) * 260)
     lifespan = max(maturity + 720, min(3800, lifespan))
     senescence = int(lifespan * (0.72 + min(0.16, genome.sociality * 0.04)))
     fertility_end = int(lifespan * (0.92 + min(0.05, reproduction * 0.04)))
-    interval = int(base_interval + size * 48 - reproduction * 54 + genome.sociality * 12)
+    interval = int(base_interval + size * 48 - reproduction * 54 + genome.sociality * 12 + reproduction_burden * 32)
     interval = max(34, min(260, interval))
-    clutch = int(round(base_clutch + reproduction * 3.0 - size * 3.2 + dormancy * 1.4))
+    clutch = int(round(base_clutch + reproduction * 3.0 - size * 3.2 + dormancy * 1.4 - reproduction_burden * 1.2 - juvenile_fragility * 0.7))
     clutch = max(1, min(9, clutch))
-    egg_viability = int(genome.egg_viability_ticks + dormancy * 420 - mutation_load * 120)
+    egg_viability = int(genome.egg_viability_ticks + dormancy * 420 - mutation_load * 120 - juvenile_fragility * 90 + viability_index * 40)
     egg_viability = max(220, min(1900, egg_viability))
-    dormancy_decay = clamp(0.82 - dormancy * 0.48 + mutation_load * 0.14, 0.24, 0.92)
-    hatch_sensitivity = clamp(0.62 + reproduction * 0.22 - dormancy * 0.18 - mutation_load * 0.10, 0.36, 0.92)
+    dormancy_decay = clamp(0.82 - dormancy * 0.48 + mutation_load * 0.14 + juvenile_fragility * 0.08, 0.24, 0.92)
+    hatch_sensitivity = clamp(0.62 + reproduction * 0.22 - dormancy * 0.18 - mutation_load * 0.10 - juvenile_fragility * 0.08 + viability_index * 0.04, 0.30, 0.92)
     parthenogenesis_bias = clamp(genome.parthenogenesis_bias + genome.parthenogenesis_alleles * 0.05 - mutation_load * 0.06)
 
     return LifeHistoryProfile(
@@ -138,11 +145,11 @@ def derive_life_history(genome: LifeHistoryGenome) -> LifeHistoryProfile:
         expected_lifespan_ticks=lifespan,
         reproduction_interval_ticks=interval,
         base_clutch_size=clutch,
-        offspring_investment=clamp(investment + reproduction * 0.10 - size * 0.05, 0.18, 0.62),
+        offspring_investment=clamp(investment + reproduction * 0.10 - size * 0.05 + juvenile_fragility * 0.06, 0.18, 0.66),
         brood_strategy=brood_strategy,
         egg_strategy=egg_strategy,
         dormancy_bias=dormancy,
-        juvenile_investment=clamp(juvenile_investment + size * 0.12 - reproduction * 0.08, 0.24, 0.86),
+        juvenile_investment=clamp(juvenile_investment + size * 0.12 - reproduction * 0.08 + juvenile_fragility * 0.10, 0.24, 0.90),
         parthenogenesis_alleles=max(0, min(4, genome.parthenogenesis_alleles)),
         parthenogenesis_bias=parthenogenesis_bias,
         egg_viability_ticks=egg_viability,

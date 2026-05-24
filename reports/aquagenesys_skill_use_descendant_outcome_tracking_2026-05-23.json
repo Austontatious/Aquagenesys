@@ -1,0 +1,95 @@
+{
+  "schema": "aquagenesys.skill_use_descendant_outcome_report.v1",
+  "date": "2026-05-23",
+  "implemented": {
+    "skill_evidence_module": "aquagenesys/simulation/skill_evidence.py",
+    "engine_hooks": [
+      "AquagenesysSimulation.step",
+      "AquagenesysSimulation._record_instruction_inheritance",
+      "AquagenesysSimulation._hatch_egg",
+      "AquagenesysSimulation._record_skill_use_outcomes",
+      "AquagenesysSimulation._record_skill_reproduction_after_use",
+      "AquagenesysSimulation._record_skill_death_after_use"
+    ],
+    "state_schema": "aquagenesys.state.v10",
+    "lineage_story_schema": "aquagenesys.lineage_story.v2",
+    "skill_evidence_schema": "aquagenesys.skill_evidence.v1"
+  },
+  "events": [
+    "skill_inherited",
+    "skill_outcome_observed",
+    "skill_descendant_outcome"
+  ],
+  "effect_labels": [
+    "helped_possible",
+    "harmed_possible",
+    "unclear",
+    "insufficient_evidence"
+  ],
+  "supported_claims": [
+    "A taught or inherited skill was received by an offspring, egg, or hatchling.",
+    "A skill carrier expressed a matching behavior in a relevant context.",
+    "Immediate local outcomes after use can be labeled helped_possible, harmed_possible, or unclear.",
+    "A skill carrier later reproduced or died after recent observed use.",
+    "Lineage story and dashboard can show bounded evidence without asserting causality."
+  ],
+  "unsupported_claims": [
+    "The skill caused survival.",
+    "The skill caused reproduction.",
+    "The skill is globally beneficial.",
+    "The current evidence is a counterfactual policy comparison."
+  ],
+  "code_references": {
+    "skill_matching": "aquagenesys/simulation/skill_evidence.py::matched_skills_for_action",
+    "outcome_labeling": "aquagenesys/simulation/skill_evidence.py::classify_skill_outcome",
+    "aggregation": "aquagenesys/simulation/skill_evidence.py::aggregate_skill_evidence",
+    "engine_tick_hook": "aquagenesys/simulation/engine.py::AquagenesysSimulation.step",
+    "inheritance_hook": "aquagenesys/simulation/engine.py::AquagenesysSimulation._record_instruction_inheritance",
+    "lineage_story": "aquagenesys/simulation/lineage_story.py::build_lineage_story",
+    "dashboard": "aquagenesys/simulation/dashboard.py::build_observatory_dashboard",
+    "genealogy": "aquagenesys/simulation/genealogy.py::build_genealogy"
+  },
+  "evidence_strength": {
+    "current": "observational",
+    "strong_for": [
+      "recording inheritance",
+      "recording observed use",
+      "recording immediate local outcome",
+      "showing uncertainty in story/dashboard surfaces"
+    ],
+    "weak_for": [
+      "causal attribution",
+      "counterfactual skill comparisons",
+      "long-horizon archived lineage fitness"
+    ]
+  },
+  "validation": [
+    {
+      "command": "python3 -m pytest -q tests",
+      "result": "passed",
+      "detail": "57 passed"
+    },
+    {
+      "command": "python3 evals/runner.py --check",
+      "result": "passed"
+    },
+    {
+      "command": "python3 evals/runner.py",
+      "result": "passed"
+    },
+    {
+      "command": "python3 evals/recovery_assays.py --json",
+      "result": "passed"
+    },
+    {
+      "command": "python3 -m pytest -q tests/test_codex_standards.py --noconftest",
+      "result": "passed",
+      "detail": "9 passed"
+    },
+    {
+      "command": "node --check aquagenesys/web/static/app.js",
+      "result": "passed"
+    }
+  ],
+  "next_step": "Add explicit lineage fitness denominators for skill-bearing versus non-skill-bearing descendants, preserving uncertainty and avoiding causal overclaiming."
+}

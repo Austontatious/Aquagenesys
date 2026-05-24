@@ -8,6 +8,13 @@ from typing import Any
 
 from aquagenesys.agents.instructions import BehaviorInstructionGenome, TaughtSkill
 from aquagenesys.agents.life_history import LifeHistoryProfile, derive_life_history
+from aquagenesys.agents.morphology import (
+    MorphologyAffordances,
+    MorphologyGenome,
+    derive_observational_labels,
+    interpret_morphology,
+    morphology_render_payload,
+)
 
 
 def clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -86,6 +93,7 @@ class FishGenome:
     parthenogenesis_alleles: int
     parthenogenesis_bias: float
     mutation_load: float
+    morphology: MorphologyGenome = field(default_factory=MorphologyGenome.balanced)
 
     @classmethod
     def founder(cls, rng: Random, *, lineage_id: int, archetype: str) -> "FishGenome":
@@ -220,6 +228,16 @@ class FishGenome:
             parthenogenesis_alleles = 1
         elif archetype == "reed_sprinter" and allele_roll < 0.08:
             parthenogenesis_alleles = 1
+        morphology = MorphologyGenome.founder(
+            rng,
+            archetype=archetype,
+            body_size=float(base["body_size"]),
+            body_depth=float(base["body_depth"]),
+            max_speed=float(base["max_speed"]),
+            turning=float(base["turning"]),
+            sensory_range=float(base["sensory_range"]),
+            toxin_tolerance=0.44,
+        )
         return cls(
             archetype=archetype,
             species_id=species_id,
@@ -261,6 +279,7 @@ class FishGenome:
             parthenogenesis_alleles=parthenogenesis_alleles,
             parthenogenesis_bias=clamp(0.02 + parthenogenesis_alleles * 0.08 + rng.uniform(-0.015, 0.025)),
             mutation_load=clamp(rng.uniform(0.02, 0.10)),
+            morphology=morphology,
         )
 
     def mutated(self, rng: Random, *, lineage_id: int | None = None) -> "FishGenome":
@@ -287,6 +306,7 @@ class FishGenome:
             parthenogenesis_alleles += rng.choice([-1, 1])
         parthenogenesis_alleles = max(0, min(4, parthenogenesis_alleles))
         next_lineage = self.lineage_id if lineage_id is None else lineage_id
+        morphology = self.morphology.mutated(rng, mutation_load=self.mutation_load)
         return FishGenome(
             archetype=self.archetype if lineage_id is None else metabolism,
             species_id=self.species_id if lineage_id is None else f"{metabolism}-{next_lineage:03d}",
@@ -330,19 +350,46 @@ class FishGenome:
                 self.parthenogenesis_bias + rng.gauss(0.0, 0.025) + (parthenogenesis_alleles - self.parthenogenesis_alleles) * 0.035
             ),
             mutation_load=clamp(self.mutation_load * 0.92 + abs(rng.gauss(0.0, 0.025))),
+            morphology=morphology,
         )
 
     def life_history(self) -> LifeHistoryProfile:
         return derive_life_history(self)
 
+    @property
+    def morphology_hash(self) -> str:
+        return self.morphology.morphology_hash
+
+    def morphology_affordances(self) -> MorphologyAffordances:
+        return interpret_morphology(self.morphology)
+
+    def morphology_labels(self) -> list[str]:
+        affordances = self.morphology_affordances()
+        return derive_observational_labels(self.morphology, affordances)
+
+    def morphology_payload(self) -> dict[str, Any]:
+        affordances = self.morphology_affordances()
+        return {
+            "schema": self.morphology.schema,
+            "morphology_hash": self.morphology_hash,
+            "loci": self.morphology.payload(),
+            "loci_summary": self.morphology.loci_summary(),
+            "affordances": affordances.payload(),
+            "labels": derive_observational_labels(self.morphology, affordances),
+        }
+
     def instruction_genome(self, rng: Random) -> BehaviorInstructionGenome:
         return BehaviorInstructionGenome.founder(rng, biological_genome=self)
 
     def phenotype_payload(self, *, compact: bool = False) -> dict[str, Any]:
-        body_length = 1.22 + self.body_size * 0.52 + self.max_speed * 0.16
-        body_depth = 0.42 + self.body_depth * 0.54
-        tail_length = 0.44 + self.tail_length * 0.62
-        fin_span = 0.26 + self.fin_span * 0.72
+        affordances = self.morphology_affordances()
+        render = morphology_render_payload(self.morphology, affordances)
+        body_loci = self.morphology.body
+        appendage_loci = self.morphology.appendage
+        body_length = 0.92 + body_loci.body_axis_length * 0.66 + self.body_size * 0.18 + self.max_speed * 0.08
+        body_depth = 0.30 + body_loci.body_axis_depth * 0.62 + self.body_depth * 0.18
+        tail_length = 0.34 + self.tail_length * 0.42 + appendage_loci.propulsion_surface * 0.22 - affordances.drag * 0.04
+        fin_span = 0.22 + self.fin_span * 0.46 + appendage_loci.propulsion_surface * 0.16 + appendage_loci.appendage_flexibility * 0.10
         stripe_count = max(2, min(9, int(round(2 + self.pattern_density * 5 + self.pattern_contrast * 2))))
         spot_count = max(3, min(16, int(round(4 + self.pattern_density * 9 + self.camouflage * 2))))
         payload = {
@@ -364,14 +411,17 @@ class FishGenome:
             "barbel_length": round(self.barbel_length, 3),
             "primary_color": self.color,
             "accent_color": self.accent_color,
+            "morphology": render,
         }
         if compact:
             return payload
         payload["mechanics"] = {
-            "thrust": round(0.88 + self.tail_length * 0.20 + self.max_speed * 0.08, 3),
-            "maneuver": round(0.84 + self.fin_span * 0.18 + self.turning * 0.08, 3),
-            "drag": round(0.82 + self.body_depth * 0.16 + self.body_size * 0.08, 3),
+            "thrust": round(0.62 + affordances.thrust_modifier * 0.42 + self.tail_length * 0.08 + self.max_speed * 0.06, 3),
+            "maneuver": round(0.70 + self.fin_span * 0.12 + self.turning * 0.07 + appendage_loci.appendage_flexibility * 0.08 - affordances.turn_penalty * 0.12, 3),
+            "drag": round(0.74 + affordances.drag * 0.44 + self.body_depth * 0.05, 3),
             "visibility": round(0.72 + self.iridescence * 0.18 + self.pattern_contrast * 0.12 - self.camouflage * 0.20, 3),
+            "feeding_throughput": round(affordances.feeding_throughput, 3),
+            "viability_index": round(affordances.viability_index, 3),
         }
         return payload
 
@@ -417,6 +467,10 @@ class FishGenome:
             "parthenogenesis_alleles": self.parthenogenesis_alleles,
             "parthenogenesis_bias": round(self.parthenogenesis_bias, 3),
             "mutation_load": round(self.mutation_load, 3),
+            "morphology_hash": self.morphology_hash,
+            "morphology": self.morphology_payload(),
+            "affordances": self.morphology_affordances().payload(),
+            "morphology_labels": self.morphology_labels(),
             "life_history": self.life_history().payload(),
             "phenotype": self.phenotype_payload(),
         }
@@ -590,7 +644,28 @@ class FishAgent:
 
     @property
     def radius(self) -> float:
-        return max(1.6, 1.45 + self.genome.body_size * 2.0 + self.genome.body_depth * 0.52)
+        body = self.genome.morphology.body
+        head = self.genome.morphology.head_mouth
+        return max(1.6, 1.24 + self.genome.body_size * 1.05 + body.body_mass * 1.35 + body.body_axis_depth * 0.56 + head.head_mass_ratio * 0.26)
+
+    @property
+    def morphology_affordances(self) -> MorphologyAffordances:
+        return self.genome.morphology_affordances()
+
+    @property
+    def effective_sensory_range(self) -> float:
+        affordances = self.morphology_affordances
+        return max(3.0, self.genome.sensory_range * (0.74 + affordances.sensory_range * 0.48))
+
+    @property
+    def effective_oxygen_need(self) -> float:
+        affordances = self.morphology_affordances
+        return clamp(self.genome.oxygen_need + affordances.oxygen_cost * 0.10, 0.02, 1.35)
+
+    @property
+    def effective_toxin_tolerance(self) -> float:
+        affordances = self.morphology_affordances
+        return clamp(self.genome.toxin_tolerance + affordances.toxin_resistance * 0.12 - affordances.toxin_self_cost * 0.05, 0.02, 1.35)
 
     @property
     def body_state(self) -> str:
@@ -626,9 +701,17 @@ class FishAgent:
             self.model_intent_ttl -= 1
             if self.model_intent_ttl <= 0:
                 self.model_intent = None
-        self.hunger = clamp(self.hunger + 0.026 + self.genome.body_size * 0.006 - self.energy * 0.0009)
+        affordances = self.morphology_affordances
+        self.hunger = clamp(
+            self.hunger
+            + 0.020
+            + self.genome.body_size * 0.004
+            + affordances.metabolic_burden * 0.010
+            + affordances.oxygen_cost * 0.004
+            - self.energy * 0.0009
+        )
         self.stress = clamp(self.stress * 0.72 + perception.stress * 0.28)
-        threat_signal = 1.0 - clamp(perception.nearest_threat[2] / max(1.0, self.genome.sensory_range))
+        threat_signal = 1.0 - clamp(perception.nearest_threat[2] / max(1.0, self.effective_sensory_range))
         self.fear = clamp(self.fear * 0.80 + max(0.0, threat_signal - 0.25) * 0.28 + self.stress * 0.12)
         reproduction_bias = {
             "early_and_often": 0.004,
@@ -643,6 +726,7 @@ class FishAgent:
                 + 0.014 * self.genome.reproduction_rate
                 + max(0.0, self.energy - 40.0) * 0.0010
                 + reproduction_bias
+                - affordances.reproduction_cost * 0.002
             )
         else:
             self.reproductive_drive = clamp(self.reproductive_drive - 0.012)
@@ -674,7 +758,7 @@ class FishAgent:
             dx, dy = perception.vector_for("threat")
             intensity = 1.0 if self.instruction_genome.threat_strategy == "flee_fast" else 0.84
             return Action("flee", dx, dy, intensity, "reflex", "nearby threat dominates", 0.80).normalized()
-        if self.hunger > 0.90 and perception.nearest_food[2] < self.genome.sensory_range * 1.6:
+        if self.hunger > 0.90 and perception.nearest_food[2] < self.effective_sensory_range * 1.6:
             dx, dy = perception.vector_for("food")
             return Action("eat", dx, dy, 0.88, "reflex", "hunger near starvation", 0.78).normalized()
         return None
@@ -691,7 +775,7 @@ class FishAgent:
         if (
             self.genome.metabolism == "predator"
             and self.hunger > 0.48
-            and perception.nearest_prey[2] < self.genome.sensory_range
+            and perception.nearest_prey[2] < self.effective_sensory_range
             and instruction.risk_posture != "cautious"
         ):
             dx, dy = perception.vector_for("prey")
@@ -746,7 +830,7 @@ class FishAgent:
         uncertainty = 0.0
         if len({event["outcome"] for event in self.memory.events[-5:]}) >= 3:
             uncertainty += 0.16
-        if perception.nearest_food[2] > self.genome.sensory_range and self.hunger > 0.58:
+        if perception.nearest_food[2] > self.effective_sensory_range and self.hunger > 0.58:
             uncertainty += 0.18
         if pressure > 0.62:
             uncertainty += 0.18
@@ -771,14 +855,16 @@ class FishAgent:
         self.last_decision = action
 
     def update_locomotion_state(self, *, speed: float, target_speed: float, turn_delta: float) -> None:
-        capacity = max(0.10, 0.17 + self.genome.turning * 0.22 + self.genome.fin_span * 0.08)
+        affordances = self.morphology_affordances
+        capacity = max(0.08, 0.17 + self.genome.turning * 0.20 + self.genome.fin_span * 0.06 - affordances.turn_penalty * 0.045)
         self.turn_rate = self.turn_rate * 0.48 + max(-capacity, min(capacity, turn_delta)) * 0.52
         self.heading = wrap_angle(self.heading + self.turn_rate)
         if speed > 0.015:
             velocity_heading = atan2(self.vy, self.vx)
             self.heading = wrap_angle(self.heading + wrap_angle(velocity_heading - self.heading) * 0.12)
-        normalized_speed = clamp(speed / max(0.05, self.genome.max_speed * 1.22))
-        normalized_target = clamp(target_speed / max(0.05, self.genome.max_speed * 1.22))
+        speed_norm = max(0.05, self.genome.max_speed * (0.96 + affordances.thrust_modifier * 0.28) * 1.22)
+        normalized_speed = clamp(speed / speed_norm)
+        normalized_target = clamp(target_speed / speed_norm)
         self.tail_beat = clamp(normalized_speed * 0.64 + normalized_target * 0.28 + abs(self.turn_rate) * 0.32)
         self.body_wave = clamp(normalized_speed * 0.46 + abs(self.turn_rate) * 1.15 + self.genome.tail_length * 0.10)
         self.swim_phase = (self.swim_phase + 0.24 + self.tail_beat * (0.34 + self.genome.tail_length * 0.22)) % TAU
@@ -828,6 +914,8 @@ class FishAgent:
             "recent_outcomes": list(self.recent_outcomes[-5:]),
             "memory": self.memory.payload(),
             "genome": self.genome.payload(),
+            "morphology": self.genome.morphology_payload(),
+            "affordances": self.morphology_affordances.payload(),
             "instruction_genome": self.instruction_genome.policy_payload(),
             "taught_skills": [skill.payload() for skill in self.taught_skills],
             "instruction_lineage": {
@@ -888,6 +976,7 @@ class FishAgent:
                 "max_speed": round(self.genome.max_speed, 3),
                 "risk_tolerance": round(self.genome.risk_tolerance, 3),
                 "aggression": round(self.genome.aggression, 3),
+                "morphology_hash": self.genome.morphology_hash,
                 "color": self.genome.color,
                 "accent_color": self.genome.accent_color,
             },

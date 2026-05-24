@@ -140,8 +140,10 @@ def run_eval() -> int:
             failures.append("missing observatory dashboard")
         if expected.get("requires_genealogy") and state.get("genealogy", {}).get("schema") != "aquagenesys.genealogy.v1":
             failures.append("missing genealogy explorer state")
-        if expected.get("requires_lineage_story") and state.get("lineage_story", {}).get("schema") != "aquagenesys.lineage_story.v1":
+        if expected.get("requires_lineage_story") and state.get("lineage_story", {}).get("schema") != "aquagenesys.lineage_story.v3":
             failures.append("missing lineage story state")
+        if expected.get("requires_morphology") and state.get("morphology", {}).get("schema") != "aquagenesys.morphology.v1":
+            failures.append("missing morphology state")
         if expected.get("requires_narrator") and not state.get("dashboard", {}).get("narrator", {}).get("headline"):
             failures.append("missing ecology narrator")
         if "fields" in frame.get("environment", {}):
@@ -198,6 +200,8 @@ def run_eval() -> int:
                 "genealogy_nodes": state.get("genealogy", {}).get("summary", {}).get("nodes", 0),
                 "lineage_story_schema": state.get("lineage_story", {}).get("schema", ""),
                 "lineage_story_count": state.get("lineage_story", {}).get("summary", {}).get("story_count", 0),
+                "morphology_schema": state.get("morphology", {}).get("schema", ""),
+                "distinct_morphologies": state.get("morphology", {}).get("summary", {}).get("distinct_morphologies", 0),
                 "frame_bytes": len(json.dumps(frame)),
                 "state_bytes": len(json.dumps(state)),
             }
@@ -209,7 +213,7 @@ def run_eval() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Aquagenesys v0.3.9 eval harness")
+    parser = argparse.ArgumentParser(description="Aquagenesys v0.4.0 eval harness")
     parser.add_argument("--check", action="store_true", help="validate eval scaffolding only")
     args = parser.parse_args(argv)
     if args.check:

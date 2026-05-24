@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Aquagenesys v0.3.9</title>
+    <title>Aquagenesys v0.4.0</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
@@ -13,7 +13,7 @@
         <section class="puddle" aria-label="Aquagenesys puddle viewer">
           <canvas id="pond" width="1200" height="760"></canvas>
           <div class="hud">
-            <b>Aquagenesys v0.3.9</b>
+            <b>Aquagenesys v0.4.0</b>
             <span id="status">connecting</span>
           </div>
           <div id="puddleState" class="state-banner" hidden>DEAD PUDDLE - chemistry still running</div>
@@ -83,6 +83,18 @@
             </div>
           </section>
 
+          <section class="morphology-observatory" aria-label="Morphology affordance observatory">
+            <h2>Morphology Affordances</h2>
+            <div class="morphology-summary">
+              <div><dt>Distinct bodies</dt><dd id="morphDistinct">0</dd></div>
+              <div><dt>Avg viability</dt><dd id="morphViability">0</dd></div>
+              <div><dt>Avg drag</dt><dd id="morphDrag">0</dd></div>
+              <div><dt>High cost</dt><dd id="morphHighCost">0</dd></div>
+            </div>
+            <ul id="morphologyLabels" class="dense-list"></ul>
+            <ul id="morphologyNotable" class="dense-list"></ul>
+          </section>
+
           <section class="genealogy-explorer" aria-label="Lineage and policy genealogy explorer">
             <div class="genealogy-heading">
               <div>
@@ -150,6 +162,12 @@
             </div>
           </section>
 
+          <section class="skill-evidence" aria-label="Inherited behavior evidence">
+            <h2>Inherited Behavior Evidence</h2>
+            <p id="skillEvidenceSummary">No inherited behavior evidence observed yet.</p>
+            <ul id="skillEvidenceList" class="dense-list"></ul>
+          </section>
+
           <section class="observatory-grid">
             <div>
               <h2>Events Timeline</h2>
@@ -195,6 +213,9 @@
             <div><dt>Body</dt><dd id="fishBody">-</dd></div>
             <div><dt>Phenotype</dt><dd id="fishPhenotype">-</dd></div>
             <div><dt>Traits</dt><dd id="fishTraits">-</dd></div>
+            <div><dt>Morphology</dt><dd id="fishMorphology">-</dd></div>
+            <div><dt>Affordances</dt><dd id="fishAffordances">-</dd></div>
+            <div><dt>Costs</dt><dd id="fishCosts">-</dd></div>
             <div><dt>Motion</dt><dd id="fishMotion">-</dd></div>
             <div><dt>Lifecycle</dt><dd id="fishLifecycle">-</dd></div>
             <div><dt>Repro</dt><dd id="fishRepro">-</dd></div>

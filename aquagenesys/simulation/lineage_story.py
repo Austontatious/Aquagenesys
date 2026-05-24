@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from typing import Any, Iterable
 
 
-SCHEMA = "aquagenesys.lineage_story.v1"
+SCHEMA = "aquagenesys.lineage_story.v3"
 THESIS = "Instruction changes intent. Biology controls capability. Ecology decides what persists."
 QUESTIONS = (
     "Who survived?",
@@ -142,14 +142,15 @@ def _lineage_story(
     lineage_events = [event for event in events if int(event.get("lineage", -1) or -1) == lineage_id]
     lineage_repro = [row for row in reproduction_log if int(row.get("lineage", -1) or -1) == lineage_id]
     lineage_instruction = [row for row in instruction_log if int(row.get("lineage_id", -1) or -1) == lineage_id]
+    lineage_skill_evidence = _lineage_skill_evidence(lineage_id, telemetry)
     death_causes = _lineage_death_causes(lineage_id, dead, dead_agent_summaries)
     answers = {
         "who_survived": _who_survived(lineage, living, eggs),
-        "inherited": _inherited(latest),
+        "inherited": _inherited(latest, lineage_skill_evidence),
         "changed": _changed(earliest, latest, lineage),
-        "tried": _tried(lineage_events, lineage_repro, lineage_instruction),
+        "tried": _tried(lineage_events, lineage_repro, lineage_instruction, lineage_skill_evidence),
         "losses": _losses(death_causes, dead, telemetry),
-        "persisted": _persisted(lineage, latest, dashboard, genealogy, lineage_events, lineage_repro),
+        "persisted": _persisted(lineage, latest, dashboard, genealogy, lineage_events, lineage_repro, lineage_skill_evidence),
     }
     title = _story_title(lineage, latest, dashboard)
     headline = _story_headline(lineage, answers, dashboard)
@@ -169,9 +170,10 @@ def _lineage_story(
         "answers": answers,
         "biology_track": _biology_track(earliest, latest),
         "behavior_track": _behavior_track(earliest, latest, lineage_instruction),
+        "skill_evidence": lineage_skill_evidence,
         "attempts": _attempts(lineage_events, lineage_repro, lineage_instruction),
         "losses": [{"cause": cause, "count": count} for cause, count in death_causes.most_common(6)],
-        "evidence": _story_evidence(lineage, latest, lineage_events, lineage_repro, lineage_instruction, death_causes),
+        "evidence": _story_evidence(lineage, latest, lineage_events, lineage_repro, lineage_instruction, death_causes, lineage_skill_evidence),
         "node_ids": [str(node.get("node_id")) for node in lineage_nodes[-16:]],
     }
 
@@ -195,6 +197,7 @@ def _empty_story(telemetry: dict[str, Any], dashboard: dict[str, Any]) -> dict[s
         },
         "biology_track": [],
         "behavior_track": [],
+        "skill_evidence": {"aggregates": [], "recent_events": [], "claim_boundary": "No skill evidence visible yet."},
         "attempts": [],
         "losses": [],
         "evidence": [],
@@ -247,17 +250,27 @@ def _who_survived(lineage: dict[str, Any], living: list[dict[str, Any]], eggs: l
     return f"Lineage L{lineage.get('lineage_id')} is {status}: {adults} adults, {viable} viable eggs, {dormant} dormant eggs.{suffix}"
 
 
-def _inherited(node: dict[str, Any] | None) -> str:
+def _inherited(node: dict[str, Any] | None, skill_evidence: dict[str, Any] | None = None) -> str:
     if not node:
         return "No active or sampled node is available for inheritance evidence."
     biology = node.get("biology", {})
     behavior = node.get("behavior", {})
     capability = node.get("capability", {})
-    return (
+    affordances = capability.get("affordances", {}) or {}
+    morphology_text = (
+        f"morphology {capability.get('morphology_label', 'unknown body plan')} "
+        f"({str(capability.get('morphology_hash', biology.get('morphology_hash', '')))[-10:]}), "
+        f"viability {affordances.get('viability_index', '-')}, drag {affordances.get('drag', '-')}"
+        if capability.get("morphology_label") or biology.get("morphology_hash")
+        else "no morphology affordance summary"
+    )
+    text = (
         f"It carries biology {biology.get('signature', '-')}, {capability.get('archetype', 'unknown')} "
         f"{capability.get('body', 'body')} body, {capability.get('egg_strategy', 'egg')} egg strategy, "
-        f"and policy {behavior.get('policy_hash_short', '-')} ({behavior.get('policy_label', 'unknown')})."
+        f"{morphology_text}, and policy {behavior.get('policy_hash_short', '-')} ({behavior.get('policy_label', 'unknown')})."
     )
+    skill_text = _skill_evidence_sentence(skill_evidence)
+    return f"{text} {skill_text}" if skill_text else text
 
 
 def _changed(earliest: dict[str, Any] | None, latest: dict[str, Any] | None, lineage: dict[str, Any]) -> str:
@@ -268,6 +281,8 @@ def _changed(earliest: dict[str, Any] | None, latest: dict[str, Any] | None, lin
         changes.append("compact genome hash changed")
     if earliest.get("biology", {}).get("phenotype_hash") != latest.get("biology", {}).get("phenotype_hash"):
         changes.append("phenotype signature changed")
+    if earliest.get("biology", {}).get("morphology_hash") != latest.get("biology", {}).get("morphology_hash"):
+        changes.append("morphology affordance signature changed")
     if earliest.get("behavior", {}).get("policy_hash_short") != latest.get("behavior", {}).get("policy_hash_short"):
         changes.append(
             f"policy shifted from {earliest.get('behavior', {}).get('policy_hash_short', '-')} to {latest.get('behavior', {}).get('policy_hash_short', '-')}"
@@ -278,14 +293,28 @@ def _changed(earliest: dict[str, Any] | None, latest: dict[str, Any] | None, lin
     return f"Across {span}, " + "; ".join(changes) + "."
 
 
-def _tried(events: list[dict[str, Any]], reproduction_log: list[dict[str, Any]], instruction_log: list[dict[str, Any]]) -> str:
+def _tried(
+    events: list[dict[str, Any]],
+    reproduction_log: list[dict[str, Any]],
+    instruction_log: list[dict[str, Any]],
+    skill_evidence: dict[str, Any] | None = None,
+) -> str:
     event_counts = Counter(str(event.get("kind", "event")) for event in events)
     successes = event_counts.get("egg_clutch", 0) + event_counts.get("birth", 0) + event_counts.get("egg_hatched", 0)
     inherited = sum(1 for row in instruction_log if row.get("event_type") == "offspring_instruction_inheritance")
     accepted = sum(1 for row in instruction_log if row.get("event_type") == "instruction_patch_acceptance" or row.get("patch_accepted") is True)
     gates = Counter(str(row.get("reason", "unknown")) for row in reproduction_log if row.get("reason") not in {"not_mature", "cooldown"})
     gate_text = ", ".join(reason.replace("_", " ") for reason, _ in gates.most_common(3)) or "no notable blocked gates"
-    return f"It tried {successes} visible reproductive recovery events, {inherited} instruction inheritances, {accepted} accepted teaching patches; blocked gates include {gate_text}."
+    skill_summary = skill_evidence.get("summary", {}) if skill_evidence else {}
+    uses = int(skill_summary.get("observed_uses", 0) or 0)
+    skill_text = (
+        f" Skill evidence observed {uses} use events with "
+        f"{skill_summary.get('helped_possible', 0)} helped possible, "
+        f"{skill_summary.get('harmed_possible', 0)} harmed possible, and {skill_summary.get('unclear', 0)} unclear labels."
+        if uses
+        else ""
+    )
+    return f"It tried {successes} visible reproductive recovery events, {inherited} instruction inheritances, {accepted} accepted teaching patches; blocked gates include {gate_text}.{skill_text}"
 
 
 def _losses(death_causes: Counter[str], dead: list[dict[str, Any]], telemetry: dict[str, Any]) -> str:
@@ -308,11 +337,13 @@ def _persisted(
     genealogy: dict[str, Any],
     events: list[dict[str, Any]],
     reproduction_log: list[dict[str, Any]],
+    skill_evidence: dict[str, Any] | None = None,
 ) -> str:
     recovery = dashboard.get("recovery", {})
     contribution = _lineage_recovery_contribution(lineage.get("lineage_id"), genealogy)
     behavior = latest.get("behavior", {}) if latest else {}
     capability = latest.get("capability", {}) if latest else {}
+    affordances = capability.get("affordances", {}) or {}
     recent_hatches = sum(1 for event in events if event.get("kind") == "egg_hatched")
     recent_clutches = sum(1 for event in events if event.get("kind") == "egg_clutch")
     gate = recovery.get("gate_pressure", "none")
@@ -320,14 +351,23 @@ def _persisted(
         f"persistence role={contribution.get('role', 'unknown')}",
         f"policy={behavior.get('policy_label', lineage.get('dominant_policy', 'unknown'))}",
         f"body={capability.get('body', 'unknown')}",
+        f"morphology={capability.get('morphology_label', 'unknown')}",
         f"egg strategy={capability.get('egg_strategy', 'unknown')}",
         f"recovery phase={recovery.get('phase', 'unknown')}",
     ]
+    if affordances:
+        parts.append(
+            f"affordances reach:{affordances.get('reach', '-')} filter:{affordances.get('filter_rate', '-')} bite:{affordances.get('bite_force', '-')} cost oxygen:{affordances.get('oxygen_cost', '-')}"
+        )
     if recent_hatches or recent_clutches:
         parts.append(f"recent hatches/clutches={recent_hatches}/{recent_clutches}")
     if reproduction_log:
         parts.append(f"gate pressure={str(gate).replace('_', ' ')}")
-    return "It persisted through " + "; ".join(parts) + "."
+    text = "It persisted through " + "; ".join(parts) + "."
+    skill_text = _skill_evidence_sentence(skill_evidence)
+    if skill_text:
+        text += f" {skill_text} Claim boundary: this suggests possible effects, but this run does not prove causality."
+    return text
 
 
 def _biology_track(earliest: dict[str, Any] | None, latest: dict[str, Any] | None) -> list[dict[str, str]]:
@@ -341,6 +381,8 @@ def _biology_track(earliest: dict[str, Any] | None, latest: dict[str, Any] | Non
                     "label": label,
                     "node": node_label(node),
                     "signature": str(node.get("biology", {}).get("signature", "-")),
+                    "morphology_hash": str(node.get("biology", {}).get("morphology_hash", "")),
+                    "morphology_label": str(node.get("capability", {}).get("morphology_label", "unknown")),
                     "body": str(node.get("capability", {}).get("body", "unknown")),
                     "life_history": str(node.get("capability", {}).get("life_history", "unknown")),
                     "egg_strategy": str(node.get("capability", {}).get("egg_strategy", "unknown")),
@@ -421,6 +463,7 @@ def _story_evidence(
     reproduction_log: list[dict[str, Any]],
     instruction_log: list[dict[str, Any]],
     death_causes: Counter[str],
+    skill_evidence: dict[str, Any] | None = None,
 ) -> list[str]:
     evidence = [
         f"L{lineage.get('lineage_id')} adults={lineage.get('live_adults', 0)} eggs={lineage.get('viable_eggs', 0)}",
@@ -428,6 +471,10 @@ def _story_evidence(
     ]
     if latest:
         evidence.append(f"node={node_label(latest)} policy={latest.get('behavior', {}).get('policy_hash_short', '-')}")
+        if latest.get("biology", {}).get("morphology_hash"):
+            evidence.append(
+                f"morphology={latest.get('capability', {}).get('morphology_label', 'unknown')} {str(latest.get('biology', {}).get('morphology_hash'))[-10:]}"
+            )
     if events:
         evidence.append(f"recent_events={', '.join(str(event.get('kind')) for event in events[-3:])}")
     if reproduction_log:
@@ -435,9 +482,66 @@ def _story_evidence(
         evidence.append("top_repro_gate=" + gates.most_common(1)[0][0].replace("_", " "))
     if instruction_log:
         evidence.append(f"instruction_events={len(instruction_log)}")
+    if skill_evidence:
+        summary = skill_evidence.get("summary", {}) or {}
+        if summary.get("observed_uses") or summary.get("carriers"):
+            evidence.append(
+                f"skill_evidence=uses:{summary.get('observed_uses', 0)} helped_possible:{summary.get('helped_possible', 0)} unclear:{summary.get('unclear', 0)}"
+            )
     if death_causes:
         evidence.append("losses=" + ", ".join(f"{cause}:{count}" for cause, count in death_causes.most_common(2)))
     return evidence[:MAX_EVIDENCE]
+
+
+def _lineage_skill_evidence(lineage_id: int, telemetry: dict[str, Any]) -> dict[str, Any]:
+    evidence = telemetry.get("skill_evidence", {}) or {}
+    aggregates = [
+        row
+        for row in list(evidence.get("aggregates", []) or [])
+        if int(row.get("lineage_id", -1) or -1) == lineage_id
+    ]
+    recent_events = [
+        row
+        for row in list(evidence.get("recent_events", []) or [])
+        if int(row.get("lineage_id", -1) or -1) == lineage_id
+    ][:MAX_EVIDENCE]
+    summary = {
+        "skills_with_evidence": len(aggregates),
+        "carriers": sum(int(row.get("carriers_count", 0) or 0) for row in aggregates),
+        "observed_uses": sum(int(row.get("uses_count", 0) or 0) for row in aggregates),
+        "offspring_carriers": sum(int(row.get("offspring_carriers_count", 0) or 0) for row in aggregates),
+        "reproduction_after_use": sum(int(row.get("reproduction_after_use_count", 0) or 0) for row in aggregates),
+        "helped_possible": sum(int(row.get("helped_possible_count", 0) or 0) for row in aggregates),
+        "harmed_possible": sum(int(row.get("harmed_possible_count", 0) or 0) for row in aggregates),
+        "unclear": sum(int(row.get("unclear_count", 0) or 0) for row in aggregates),
+    }
+    return {
+        "schema": evidence.get("schema", "aquagenesys.skill_evidence.v1"),
+        "summary": summary,
+        "aggregates": aggregates[:MAX_EVIDENCE],
+        "recent_events": recent_events,
+        "claim_boundary": "Observed skill effects are temporal/ecological associations, not causal proof.",
+    }
+
+
+def _skill_evidence_sentence(skill_evidence: dict[str, Any] | None) -> str:
+    if not skill_evidence:
+        return ""
+    summary = skill_evidence.get("summary", {}) or {}
+    aggregates = list(skill_evidence.get("aggregates", []) or [])
+    if not aggregates:
+        return ""
+    top = aggregates[0]
+    uses = int(summary.get("observed_uses", 0) or 0)
+    carriers = int(summary.get("carriers", 0) or 0)
+    if uses <= 0:
+        return f"Inherited behavior evidence: {top.get('skill_name', 'a skill')} is carried by {carriers} visible descendants, but no use has been observed yet."
+    return (
+        f"Inherited behavior evidence: {top.get('skill_name', 'a skill')} was observed in use; "
+        f"lineage totals show {carriers} carriers, {uses} uses, "
+        f"{summary.get('helped_possible', 0)} helped possible, {summary.get('harmed_possible', 0)} harmed possible, "
+        f"and {summary.get('unclear', 0)} unclear."
+    )
 
 
 def _lineage_death_causes(

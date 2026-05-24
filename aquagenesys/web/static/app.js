@@ -263,6 +263,7 @@ function updateDashboard(dashboard, telemetry) {
   document.getElementById("eggBankResilience").textContent = labelize(population.egg_bank_resilience || "none");
   document.getElementById("biosphereState").textContent = labelize(population.biosphere_state || telemetry?.biosphere_state || "unknown");
   updateRecoveryEvidence(dashboard.recovery || {});
+  updateSkillEvidence(dashboard.skill_evidence || telemetry?.skill_evidence || {});
   fillList("topLineages", dashboard.lineages?.top || [], (item) => [
     `Lineage ${item.lineage_id}`,
     `${item.adults} adults / ${item.viable_eggs} eggs / ${labelize(item.policy_label)}`,
@@ -271,6 +272,7 @@ function updateDashboard(dashboard, telemetry) {
     labelize(item.label),
     `${item.count} adults (${Math.round(Number(item.share || 0) * 100)}%)`,
   ]);
+  updateMorphologyDashboard(dashboard.morphology || telemetry?.morphology || {});
   const teaching = dashboard.teaching || {};
   fillList(
     "teachingSummary",
@@ -306,6 +308,43 @@ function updateRecoveryEvidence(recovery) {
   document.getElementById("recoveryGate").textContent = labelize(recovery.gate_pressure || "none");
   document.getElementById("recoveryPolicy").textContent = labelize(recovery.dominant_policy || "none");
   fillPlainList("recoveryEvidence", recovery.evidence || []);
+}
+
+function updateMorphologyDashboard(morphology) {
+  const summary = morphology.summary || morphology || {};
+  const setText = (id, value) => {
+    const node = document.getElementById(id);
+    if (node) node.textContent = value;
+  };
+  setText("morphDistinct", summary.distinct_morphologies ?? 0);
+  setText("morphViability", Number(summary.average_viability_index || 0).toFixed(2));
+  setText("morphDrag", Number(summary.average_drag || 0).toFixed(2));
+  setText("morphHighCost", summary.high_cost_count ?? 0);
+  fillList("morphologyLabels", morphology.top_labels || summary.top_labels || [], (item) => [
+    labelize(item.label),
+    `${item.count} organisms`,
+  ]);
+  fillList("morphologyNotable", morphology.notable || [], (item) => [
+    `#${item.fish_id} L${item.lineage_id} ${labelize(item.label)}`,
+    `viab ${Number(item.viability_index || 0).toFixed(2)} / drag ${Number(item.drag || 0).toFixed(2)} / ${item.primary_affordances?.join(", ") || "-"}`,
+  ]);
+}
+
+function updateSkillEvidence(evidence) {
+  const summaryNode = document.getElementById("skillEvidenceSummary");
+  if (!summaryNode) return;
+  const summary = evidence.summary || {};
+  summaryNode.textContent =
+    evidence.headline ||
+    (summary.observed_uses
+      ? `${summary.observed_uses} uses observed; ${summary.helped_possible || 0} helped possible, ${summary.harmed_possible || 0} harmed possible, ${summary.unclear || 0} unclear.`
+      : summary.carriers
+        ? `${summary.carriers} visible descendants carry inherited skills; no use observed yet.`
+        : "No inherited behavior evidence observed yet.");
+  fillList("skillEvidenceList", evidence.aggregates || [], (item) => [
+    `${labelize(item.skill_name || item.skill_type || "skill")} L${item.lineage_id ?? "-"}`,
+    `${item.carriers_count ?? 0} carriers / ${item.uses_count ?? 0} uses / ${item.helped_possible_count ?? 0} help possible / ${item.harmed_possible_count ?? 0} harm possible / ${item.unclear_count ?? 0} unclear (${labelize(item.evidence_strength || "weak")})`,
+  ]);
 }
 
 function fillList(id, items, render) {
@@ -494,6 +533,7 @@ function drawFish(fishList, sx, sy) {
     const y = fish.renderY * sy;
     const r = Math.max(3.4, fish.radius * Math.min(sx, sy));
     const phenotype = phenotypeFor(fish);
+    const morphology = morphologyFor(fish, phenotype);
     const locomotion = locomotionFor(fish);
     const bodyLength = r * phenotype.body_length;
     const bodyDepth = r * phenotype.body_depth;
@@ -513,6 +553,7 @@ function drawFish(fishList, sx, sy) {
     drawWake(phenotype, locomotion, bodyLength, bodyDepth, tailLength);
     drawTail(phenotype, bodyLength, bodyDepth, tailLength, pulse, healthAlpha);
     drawFins(phenotype, bodyLength, bodyDepth, r, pulse, healthAlpha);
+    drawMorphologyAppendages(morphology, phenotype, bodyLength, bodyDepth, r, pulse, healthAlpha);
 
     ctx.globalAlpha = 1;
     ctx.fillStyle = phenotype.primary_color;
@@ -529,24 +570,17 @@ function drawFish(fishList, sx, sy) {
     drawPattern(phenotype, fish.id, bodyLength, bodyDepth);
     drawIridescence(phenotype, bodyLength, bodyDepth, pulse);
     ctx.restore();
+    drawMorphologyArmor(morphology, phenotype, bodyLength, bodyDepth, r);
+    drawMorphologyHeadMouth(morphology, phenotype, bodyLength, bodyDepth, r, pulse);
+    drawChemicalMarker(morphology, phenotype, bodyLength, bodyDepth, r, pulse);
 
     ctx.fillStyle = "rgba(10, 15, 16, 0.74)";
     ctx.beginPath();
-    ctx.arc(bodyLength * 0.37, -bodyDepth * 0.20, Math.max(1.1, r * 0.10 * phenotype.eye_scale), 0, Math.PI * 2);
+    ctx.arc(bodyLength * (0.31 + morphology.head_scale * 0.05), -bodyDepth * 0.20, Math.max(1.1, r * 0.10 * phenotype.eye_scale * (0.84 + morphology.sensory_surface * 0.22)), 0, Math.PI * 2);
     ctx.fill();
 
     if (phenotype.barbel_length > 0.18) {
       drawBarbels(phenotype, bodyLength, bodyDepth, r, pulse);
-    }
-
-    if (fish.genome.metabolism === "predator") {
-      ctx.fillStyle = "rgba(20, 8, 8, 0.75)";
-      ctx.beginPath();
-      ctx.moveTo(bodyLength * 0.42, -bodyDepth * 0.26);
-      ctx.lineTo(bodyLength * 0.60, 0);
-      ctx.lineTo(bodyLength * 0.42, bodyDepth * 0.26);
-      ctx.closePath();
-      ctx.fill();
     }
 
     if (fish.decision.source === "model" || fish.active_intent) {
@@ -626,6 +660,150 @@ function phenotypeFor(fish) {
     accent_color: fish.genome?.accent_color || "#203c32",
     ...(fish.phenotype || fish.genome?.phenotype || {}),
   };
+}
+
+function morphologyFor(fish, phenotype = phenotypeFor(fish)) {
+  return {
+    schema: "aquagenesys.morphology.v1",
+    morphology_hash: fish.genome?.morphology_hash || fish.morphology?.morphology_hash || "",
+    label: fish.morphology?.labels?.[0] || phenotype.morphology?.label || "generalized aquatic body plan",
+    body_mass: 0.55,
+    body_axis_length: 0.55,
+    body_axis_depth: 0.55,
+    head_scale: 0.9,
+    mouth_scale: 0.62,
+    mouth_shape: "small",
+    appendage_count: 2,
+    appendage_length: 0.24,
+    appendage_flexibility: 0.38,
+    appendage_strength: 0.34,
+    armor_density: 0.16,
+    spine_density: 0.08,
+    soft_tissue_ratio: 0.45,
+    chemical_marker: 0.0,
+    sensory_surface: 0.38,
+    viability_index: 0.72,
+    ...(phenotype.morphology || {}),
+  };
+}
+
+function drawMorphologyAppendages(morphology, phenotype, length, depth, r, pulse, alpha) {
+  const count = Math.min(14, Math.max(0, Math.round(Number(morphology.appendage_count || 0))));
+  if (count <= 0 || Number(morphology.appendage_length || 0) <= 0.08) return;
+  const len = r * (0.48 + morphology.appendage_length * 1.65);
+  const flex = Number(morphology.appendage_flexibility || 0.4);
+  const strength = Number(morphology.appendage_strength || 0.4);
+  ctx.save();
+  ctx.globalAlpha = Math.min(0.78, alpha * (0.42 + strength * 0.32));
+  ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.58);
+  ctx.lineWidth = Math.max(1, r * (0.035 + strength * 0.035));
+  const slots = Math.max(1, Math.ceil(count / 2));
+  let drawn = 0;
+  for (let i = 0; i < slots && drawn < count; i += 1) {
+    const t = slots === 1 ? 0.0 : i / (slots - 1);
+    const anchorX = length * (0.20 - t * 0.64);
+    for (const side of [-1, 1]) {
+      if (drawn >= count) break;
+      drawn += 1;
+      const anchorY = side * depth * (0.44 + (i % 2) * 0.06);
+      const wave = Math.sin(pulse + i * 0.9 + side) * flex * r * 0.18;
+      const tipX = anchorX - len * (0.22 + t * 0.24);
+      const tipY = anchorY + side * len * (0.66 + flex * 0.34) + wave;
+      ctx.beginPath();
+      ctx.moveTo(anchorX, anchorY);
+      ctx.quadraticCurveTo(anchorX - len * 0.16, anchorY + side * len * 0.32 + wave, tipX, tipY);
+      ctx.stroke();
+      if (strength > 0.48) {
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, Math.max(0.8, r * 0.045 * strength), 0, TAU);
+        ctx.fillStyle = mixAlpha(phenotype.accent_color, 0.44);
+        ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+function drawMorphologyHeadMouth(morphology, phenotype, length, depth, r, pulse) {
+  const headScale = Number(morphology.head_scale || 0.9);
+  const mouthScale = Number(morphology.mouth_scale || 0.6);
+  const headX = length * 0.33;
+  ctx.save();
+  ctx.fillStyle = mixAlpha(phenotype.primary_color, 0.82);
+  ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.62);
+  ctx.lineWidth = Math.max(1, r * 0.06);
+  ctx.beginPath();
+  ctx.ellipse(headX, 0, depth * (0.28 + headScale * 0.20), depth * (0.36 + headScale * 0.16), 0, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+  const mouthX = length * (0.49 + mouthScale * 0.04);
+  ctx.fillStyle = "rgba(12, 10, 10, 0.76)";
+  ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.70);
+  ctx.lineWidth = Math.max(1, r * 0.045);
+  ctx.beginPath();
+  if (morphology.mouth_shape === "filter_slot") {
+    ctx.rect(mouthX - r * 0.02, -depth * mouthScale * 0.22, Math.max(1, r * 0.18), depth * mouthScale * 0.44);
+  } else if (morphology.mouth_shape === "suction") {
+    ctx.ellipse(mouthX, 0, r * (0.07 + mouthScale * 0.12), r * (0.06 + mouthScale * 0.10), pulse * 0.05, 0, TAU);
+  } else if (morphology.mouth_shape === "force_aperture") {
+    ctx.moveTo(mouthX - r * 0.02, -depth * mouthScale * 0.25);
+    ctx.lineTo(mouthX + r * (0.20 + mouthScale * 0.12), 0);
+    ctx.lineTo(mouthX - r * 0.02, depth * mouthScale * 0.25);
+    ctx.closePath();
+  } else {
+    ctx.ellipse(mouthX, 0, r * (0.07 + mouthScale * 0.05), r * 0.045, 0, 0, TAU);
+  }
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawMorphologyArmor(morphology, phenotype, length, depth, r) {
+  const armor = Number(morphology.armor_density || 0);
+  const spines = Number(morphology.spine_density || 0);
+  if (armor <= 0.16 && spines <= 0.12) return;
+  ctx.save();
+  ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.30 + armor * 0.42);
+  ctx.lineWidth = Math.max(1, r * (0.035 + armor * 0.05));
+  const plates = Math.max(3, Math.min(9, Math.round(3 + armor * 6)));
+  for (let i = 0; i < plates; i += 1) {
+    const x = -length * 0.42 + (i / Math.max(1, plates - 1)) * length * 0.76;
+    ctx.beginPath();
+    ctx.moveTo(x, -depth * 0.60);
+    ctx.quadraticCurveTo(x + length * 0.04, 0, x, depth * 0.60);
+    ctx.stroke();
+  }
+  const spineCount = Math.min(10, Math.round(spines * 9));
+  ctx.fillStyle = mixAlpha(phenotype.accent_color, 0.64);
+  for (let i = 0; i < spineCount; i += 1) {
+    const t = (i + 1) / (spineCount + 1);
+    const x = -length * 0.42 + t * length * 0.80;
+    ctx.beginPath();
+    ctx.moveTo(x - r * 0.06, -depth * 0.64);
+    ctx.lineTo(x + r * 0.05, -depth * (0.86 + spines * 0.18));
+    ctx.lineTo(x + r * 0.16, -depth * 0.62);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawChemicalMarker(morphology, phenotype, length, depth, r, pulse) {
+  const marker = Number(morphology.chemical_marker || 0);
+  if (marker <= 0.12) return;
+  ctx.save();
+  ctx.globalAlpha = Math.min(0.72, 0.20 + marker * 0.52);
+  ctx.fillStyle = "rgba(184, 244, 128, 0.48)";
+  const glands = Math.max(1, Math.min(5, Math.round(marker * 5)));
+  for (let i = 0; i < glands; i += 1) {
+    const t = (i + 1) / (glands + 1);
+    const x = -length * 0.30 + t * length * 0.52;
+    const y = depth * (0.26 + Math.sin(pulse + i) * 0.06);
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * (0.05 + marker * 0.08), r * (0.03 + marker * 0.05), 0, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 function bodyPath(phenotype, length, depth, bend = 0) {
@@ -870,8 +1048,15 @@ function updateInspector() {
   document.getElementById("fishSpecies").textContent = `${fish.species_id} / ${fish.genome.archetype}`;
   document.getElementById("fishBody").textContent = `${fish.body_state} ${fish.genome.metabolism}`;
   const phenotype = phenotypeFor(fish);
+  const morphology = morphologyFor(fish, phenotype);
+  const fullFish = findStateFish(fish.id) || fish;
+  const affordances = fullFish.affordances || fullFish.morphology?.affordances || {};
   document.getElementById("fishPhenotype").textContent = `${phenotype.shape} / ${phenotype.tail} / ${phenotype.pattern}`;
   document.getElementById("fishTraits").textContent = `fin ${Number(phenotype.fin_span).toFixed(2)} camo ${Number(phenotype.camouflage).toFixed(2)}`;
+  document.getElementById("fishMorphology").textContent =
+    `${labelize(morphology.label)} / ${String(morphology.morphology_hash || "-").slice(-10)}`;
+  document.getElementById("fishAffordances").textContent = summarizeAffordances(affordances);
+  document.getElementById("fishCosts").textContent = summarizeCosts(affordances);
   const locomotion = locomotionFor(fish);
   document.getElementById("fishMotion").textContent = `spd ${Number(locomotion.speed).toFixed(2)} turn ${Number(locomotion.turn_rate).toFixed(2)}`;
   const life = fish.life_history || {};
@@ -905,6 +1090,40 @@ function updateInspector() {
 function findFish(id) {
   if (id === null || !currentFrame) return null;
   return (currentFrame.fish || []).find((fish) => fish.id === id) || null;
+}
+
+function findStateFish(id) {
+  if (id === null || !latestState) return null;
+  return (latestState.fish || latestState.organisms || []).find((fish) => fish.id === id) || null;
+}
+
+function summarizeAffordances(affordances) {
+  const values = [
+    ["reach", affordances.reach],
+    ["grip", affordances.grip],
+    ["bite", affordances.bite_force],
+    ["suction", affordances.suction_force],
+    ["filter", affordances.filter_rate],
+    ["armor", affordances.armor_protection],
+    ["toxin", affordances.toxin_payload],
+  ]
+    .filter((item) => item[1] !== undefined)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 3);
+  return values.length ? values.map(([label, value]) => `${label} ${Number(value).toFixed(2)}`).join(" / ") : "-";
+}
+
+function summarizeCosts(affordances) {
+  const values = [
+    ["drag", affordances.drag],
+    ["oxygen", affordances.oxygen_cost],
+    ["growth", affordances.growth_cost],
+    ["repro", affordances.reproduction_cost],
+    ["fragility", affordances.juvenile_fragility],
+    ["viability", affordances.viability_index],
+  ].filter((item) => item[1] !== undefined);
+  if (!values.length) return "-";
+  return values.map(([label, value]) => `${label} ${Number(value).toFixed(2)}`).join(" / ");
 }
 
 function lineageContextFor(fish) {
@@ -951,10 +1170,15 @@ function renderCompareSummary(a, b) {
 function renderCompareDetails(id, fish) {
   const node = document.getElementById(id);
   const phenotype = phenotypeFor(fish);
+  const morphology = morphologyFor(fish, phenotype);
+  const fullFish = findStateFish(fish.id) || fish;
+  const affordances = fullFish.affordances || fullFish.morphology?.affordances || {};
   const instruction = fish.instruction || fish.instruction_genome || {};
   const rows = [
     ["ID", `#${fish.id} L${fish.lineage} G${fish.generation}`],
     ["Body", `${fish.genome.archetype} ${phenotype.shape}`],
+    ["Morphology", labelize(morphology.label)],
+    ["Affordances", summarizeAffordances(affordances)],
     ["Lifecycle", `${fish.maturity_state} / ${fish.fertility_state}`],
     ["State", `E ${Number(fish.energy).toFixed(1)} H ${Number(fish.health).toFixed(2)} S ${Number(fish.stress).toFixed(2)}`],
     ["Policy", `${instruction.policy_hash_short || "-"} ${instruction.policy_label || ""}`],
@@ -992,6 +1216,13 @@ function compareRelationship(a, b) {
   } else {
     rows.push(`Both use the ${a.genome.metabolism} feeding role and may compete for similar resources.`);
   }
+  const aMorph = morphologyFor(a, phenotypeFor(a));
+  const bMorph = morphologyFor(b, phenotypeFor(b));
+  if (aMorph.morphology_hash && aMorph.morphology_hash === bMorph.morphology_hash) {
+    rows.push(`Their morphology signatures match: ${String(aMorph.morphology_hash).slice(-10)}.`);
+  } else {
+    rows.push(`Morphology contrast: ${labelize(aMorph.label)} versus ${labelize(bMorph.label)}.`);
+  }
   if (distance < 8) rows.push(`They are nearby on screen, so schooling, mating, or resource competition may be relevant.`);
   const fertility = `${a.fertility_state}/${b.fertility_state}`;
   rows.push(`Fertility comparison: A/B = ${fertility}.`);
@@ -1011,7 +1242,7 @@ function updateGenealogy(genealogy) {
   const visibleNodes = lineageNodes.length ? lineageNodes : (genealogy.nodes || []).slice(0, 8);
   fillList("genealogyBiology", visibleNodes.slice(0, 8), (node) => [
     nodeLabel(node),
-    `${node.biology?.signature || "-"} / ${labelize(node.capability?.body)} / ${labelize(node.capability?.egg_strategy)}`,
+    `${node.biology?.signature || "-"} / ${labelize(node.capability?.morphology_label || node.capability?.body)} / ${labelize(node.capability?.egg_strategy)}`,
   ]);
   fillList("genealogyBehavior", visibleNodes.slice(0, 8), (node) => [
     nodeLabel(node),
@@ -1043,7 +1274,7 @@ function updateLineageStory(story) {
   fillStoryQuestions("lineageStoryQuestions", questions);
   fillList("lineageStoryBiology", current?.biology_track || [], (item) => [
     `${labelize(item.label)} ${item.node}`,
-    `${item.signature} / ${labelize(item.body)} / ${labelize(item.egg_strategy)}`,
+    `${item.signature} / ${labelize(item.morphology_label || item.body)} / ${labelize(item.egg_strategy)}`,
   ]);
   fillList("lineageStoryBehavior", current?.behavior_track || [], (item) => [
     `${labelize(item.label)} ${item.node}`,

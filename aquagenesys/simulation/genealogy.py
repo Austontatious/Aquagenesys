@@ -31,6 +31,7 @@ def build_genealogy(
     lineages = _lineages(nodes)
     policies = _policy_inheritance(nodes, list(instruction_log))
     recovery = _recovery_contributions(nodes, list(reproduction_log), list(events), telemetry)
+    skill_evidence = _skill_evidence(telemetry)
     return {
         "schema": "aquagenesys.genealogy.v1",
         "tick": tick,
@@ -54,6 +55,7 @@ def build_genealogy(
         "edges": edges,
         "policy_inheritance": policies,
         "recovery_contributions": recovery,
+        "skill_evidence": skill_evidence,
         "thesis": "Instruction changes intent. Biology controls capability. Ecology decides what persists.",
     }
 
@@ -77,6 +79,9 @@ def _fish_node(fish: Any) -> dict[str, Any]:
         "capability": {
             "archetype": genome.archetype,
             "metabolism": genome.metabolism,
+            "morphology_hash": genome.morphology_hash,
+            "morphology_label": genome.morphology_labels()[0],
+            "affordances": genome.morphology_affordances().compact_payload(),
             "body": genome.body_shape,
             "tail": genome.tail_shape,
             "max_speed": round(genome.max_speed, 3),
@@ -113,6 +118,9 @@ def _egg_node(egg: Any) -> dict[str, Any]:
         "capability": {
             "archetype": genome.archetype,
             "metabolism": genome.metabolism,
+            "morphology_hash": genome.morphology_hash,
+            "morphology_label": genome.morphology_labels()[0],
+            "affordances": genome.morphology_affordances().compact_payload(),
             "body": genome.body_shape,
             "tail": genome.tail_shape,
             "max_speed": round(genome.max_speed, 3),
@@ -145,6 +153,7 @@ def _dead_node(summary: dict[str, Any]) -> dict[str, Any]:
         "biology": {
             "genome_hash": str(summary.get("biological_genome_hash", ""))[:12],
             "phenotype_hash": str(summary.get("phenotype_hash", ""))[:12],
+            "morphology_hash": str(summary.get("morphology_hash", ""))[:18],
             "signature": str(summary.get("biological_genome_hash", ""))[:8],
         },
         "behavior": {
@@ -158,6 +167,8 @@ def _dead_node(summary: dict[str, Any]) -> dict[str, Any]:
         "capability": {
             "archetype": summary.get("archetype", "unknown"),
             "metabolism": summary.get("metabolism", "unknown"),
+            "morphology_hash": str(summary.get("morphology_hash", ""))[:18],
+            "morphology_label": (summary.get("morphology_labels") or ["archived morphology"])[0],
             "body": summary.get("body_shape", "unknown"),
             "tail": summary.get("tail_shape", "unknown"),
             "max_speed": None,
@@ -184,7 +195,9 @@ def _biology_signature(genome: Any) -> dict[str, str]:
     return {
         "genome_hash": genome_hash,
         "phenotype_hash": phenotype_hash,
-        "signature": f"{genome.metabolism[:3]}-{genome.body_shape[:3]}-{genome_hash[:6]}",
+        "morphology_hash": genome.morphology_hash,
+        "morphology_label": genome.morphology_labels()[0],
+        "signature": f"{genome.metabolism[:3]}-{genome.body_shape[:3]}-{genome.morphology_hash[-6:]}",
     }
 
 
@@ -275,6 +288,8 @@ def _policy_inheritance(nodes: list[dict[str, Any]], instruction_log: list[dict[
             "lineage_id": item.get("lineage_id"),
             "delivery": item.get("delivery"),
             "policy_label": item.get("offspring_policy_label", ""),
+            "skill_hashes": list(item.get("skill_hashes", []))[:4],
+            "skill_count": int(item.get("skill_count", 0) or 0),
             "patch_accepted": item.get("patch_accepted"),
             "patch_reason": item.get("patch_reason", ""),
         }
@@ -287,6 +302,16 @@ def _policy_inheritance(nodes: list[dict[str, Any]], instruction_log: list[dict[
         "recent_inheritance": recent,
         "accepted_patch_nodes": sum(node["behavior"].get("accepted_patch_count", 0) for node in nodes),
         "rejected_patch_nodes": sum(node["behavior"].get("rejected_patch_count", 0) for node in nodes),
+    }
+
+
+def _skill_evidence(telemetry: dict[str, Any]) -> dict[str, Any]:
+    evidence = telemetry.get("skill_evidence", {}) or {}
+    return {
+        "schema": evidence.get("schema", "aquagenesys.skill_evidence.v1"),
+        "summary": evidence.get("summary", {}),
+        "aggregates": list(evidence.get("aggregates", []) or [])[:MAX_LINEAGES],
+        "recent_events": list(evidence.get("recent_events", []) or [])[:12],
     }
 
 

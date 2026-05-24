@@ -26,8 +26,10 @@ def build_observatory_dashboard(
     recent_instruction = list(instruction_log)
     recent_decisions = list(decision_log)
     lineages = _lineage_summary(fish, eggs)
+    morphology = _morphology_summary(telemetry, fish)
     policies = _policy_summary(fish)
     teaching = _teaching_summary(telemetry, recent_instruction)
+    skill_evidence = _skill_evidence_summary(telemetry)
     diagnostics = _diagnostics_summary(telemetry)
     population = _population_summary(telemetry, recent_events)
     timeline = _timeline(recent_events, recent_reproduction, recent_instruction, recent_decisions)
@@ -40,7 +42,7 @@ def build_observatory_dashboard(
         timeline=timeline,
         field_averages=field_averages or {},
     )
-    narrator = _narrator(telemetry, population, lineages, policies, teaching, diagnostics, timeline, recovery)
+    narrator = _narrator(telemetry, population, lineages, morphology, policies, teaching, diagnostics, timeline, recovery)
     return {
         "schema": "aquagenesys.dashboard.v2",
         "tick": tick,
@@ -49,8 +51,10 @@ def build_observatory_dashboard(
         "recovery": recovery,
         "population": population,
         "lineages": lineages,
+        "morphology": morphology,
         "policies": policies,
         "teaching": teaching,
+        "skill_evidence": skill_evidence,
         "events": timeline,
         "diagnostics": diagnostics,
         "focus_hints": _focus_hints(fish, eggs),
@@ -265,6 +269,65 @@ def _lineage_summary(fish: Sequence[Any], eggs: Sequence[Any]) -> dict[str, Any]
     }
 
 
+def _morphology_summary(telemetry: dict[str, Any], fish: Sequence[Any]) -> dict[str, Any]:
+    telemetry_summary = telemetry.get("morphology", {}) or {}
+    label_counts: Counter[str] = Counter()
+    rows: list[dict[str, Any]] = []
+    for item in fish:
+        affordances = item.morphology_affordances
+        labels = item.genome.morphology_labels()
+        label = labels[0] if labels else "generalized aquatic body plan"
+        label_counts[label] += 1
+        rows.append(
+            {
+                "fish_id": item.fish_id,
+                "lineage_id": item.lineage_id,
+                "morphology_hash": item.genome.morphology_hash,
+                "label": label,
+                "viability_index": round(affordances.viability_index, 3),
+                "feeding_throughput": round(affordances.feeding_throughput, 3),
+                "drag": round(affordances.drag, 3),
+                "oxygen_cost": round(affordances.oxygen_cost, 3),
+                "primary_affordances": _primary_affordances(affordances),
+                "primary_costs": _primary_costs(affordances),
+            }
+        )
+    rows.sort(key=lambda row: (row["viability_index"], -row["drag"], row["fish_id"]))
+    return {
+        "schema": "aquagenesys.morphology_dashboard.v1",
+        "summary": telemetry_summary,
+        "top_labels": [{"label": label, "count": count} for label, count in label_counts.most_common(8)],
+        "notable": rows[:8],
+        "claim_boundary": "Morphology labels are observational summaries; primitive affordances and costs drive mechanics.",
+    }
+
+
+def _primary_affordances(affordances: Any) -> list[str]:
+    values = {
+        "reach": affordances.reach,
+        "grip": affordances.grip,
+        "bite force": affordances.bite_force,
+        "suction": affordances.suction_force,
+        "filtering": affordances.filter_rate,
+        "armor": affordances.armor_protection,
+        "toxin payload": affordances.toxin_payload,
+        "sensory range": affordances.sensory_range,
+    }
+    return [label for label, _value in sorted(values.items(), key=lambda item: item[1], reverse=True)[:3]]
+
+
+def _primary_costs(affordances: Any) -> list[str]:
+    values = {
+        "drag": affordances.drag,
+        "oxygen": affordances.oxygen_cost,
+        "growth": affordances.growth_cost,
+        "reproduction": affordances.reproduction_cost,
+        "juvenile fragility": affordances.juvenile_fragility,
+        "self-toxicity": affordances.toxin_self_cost,
+    }
+    return [label for label, value in sorted(values.items(), key=lambda item: item[1], reverse=True)[:3] if value >= 0.22]
+
+
 def _policy_summary(fish: Sequence[Any]) -> dict[str, Any]:
     labels: Counter[str] = Counter(item.instruction_genome.policy_label for item in fish)
     hashes: Counter[str] = Counter(item.instruction_genome.policy_hash_short for item in fish)
@@ -315,6 +378,36 @@ def _teaching_summary(telemetry: dict[str, Any], instruction_log: list[dict[str,
         "patches_rejected": int(instruction.get("patches_rejected", 0) or 0),
         "delivery_mix": [{"label": key, "count": value} for key, value in delivery.most_common(4)],
         "recent_surviving": survived,
+    }
+
+
+def _skill_evidence_summary(telemetry: dict[str, Any]) -> dict[str, Any]:
+    evidence = telemetry.get("skill_evidence", {}) or {}
+    summary = evidence.get("summary", {}) or {}
+    aggregates = list(evidence.get("aggregates", []) or [])[:8]
+    recent_events = list(evidence.get("recent_events", []) or [])[:8]
+    uses = int(summary.get("observed_uses", 0) or 0)
+    carriers = int(summary.get("carriers", 0) or 0)
+    if uses:
+        headline = (
+            f"{uses} inherited-behavior uses observed across {carriers} visible carriers; "
+            f"{summary.get('helped_possible', 0)} helped possible, {summary.get('harmed_possible', 0)} harmed possible, "
+            f"{summary.get('unclear', 0)} unclear."
+        )
+    elif carriers:
+        headline = f"{carriers} visible descendants carry taught skills; no use has been observed yet."
+    else:
+        headline = "No inherited behavior evidence has been recorded yet."
+    return {
+        "schema": evidence.get("schema", "aquagenesys.skill_evidence.v1"),
+        "headline": headline,
+        "summary": summary,
+        "aggregates": aggregates,
+        "recent_events": recent_events,
+        "claim_boundary": summary.get(
+            "claim_boundary",
+            "Skill evidence is observational. It suggests possible effects but does not prove causality.",
+        ),
     }
 
 
@@ -408,6 +501,7 @@ def _narrator(
     telemetry: dict[str, Any],
     population: dict[str, Any],
     lineages: dict[str, Any],
+    morphology: dict[str, Any],
     policies: dict[str, Any],
     teaching: dict[str, Any],
     diagnostics: dict[str, Any],
@@ -443,6 +537,12 @@ def _narrator(
         )
     elif lineages.get("dormant_lineages"):
         points.append(f"Dormant lineage traces remain in eggs: {', '.join(str(item) for item in lineages['dormant_lineages'][:4])}.")
+    morphology_label = (morphology.get("top_labels") or [{}])[0].get("label")
+    if morphology_label:
+        morph_summary = morphology.get("summary", {}) or {}
+        points.append(
+            f"Morphology mix is led by {morphology_label}; average viability {morph_summary.get('average_viability_index', '-')}, drag {morph_summary.get('average_drag', '-')}."
+        )
     dominant_policy = policies.get("dominant")
     if dominant_policy:
         points.append(

@@ -1,0 +1,224 @@
+{
+  "schema": "aquagenesys.v040.report.v1",
+  "version": "0.4.0",
+  "date": "2026-05-23",
+  "branch": "main",
+  "starting_head": "79161d8d00036543ea538fecb1cc85239c5a076b",
+  "state_schema": "aquagenesys.state.v11",
+  "frame_schema": "aquagenesys.frame.v3",
+  "dashboard_schema": "aquagenesys.dashboard.v2",
+  "genealogy_schema": "aquagenesys.genealogy.v1",
+  "lineage_story_schema": "aquagenesys.lineage_story.v3",
+  "morphology_schema": "aquagenesys.morphology.v1",
+  "affordance_schema": "aquagenesys.morphology_affordances.v1",
+  "implementation": {
+    "morphology_module": "aquagenesys/agents/morphology.py",
+    "fish_genome_owns_morphology": true,
+    "deterministic_morphology_hash": true,
+    "labels_drive_behavior": false,
+    "frame_payload_full_morphology": false,
+    "behavior_modernization_deferred": true,
+    "module_groups": [
+      "body",
+      "head_mouth",
+      "appendage",
+      "armor_skin",
+      "chemical",
+      "sensory",
+      "development"
+    ],
+    "affordance_fields": [
+      "reach",
+      "grip",
+      "strike_impulse",
+      "bite_force",
+      "suction_force",
+      "filter_rate",
+      "scrape_rate",
+      "armor_protection",
+      "tissue_vulnerability",
+      "toxin_payload",
+      "toxin_delivery",
+      "toxin_resistance",
+      "toxin_self_cost",
+      "sensory_range",
+      "chemical_sense",
+      "motion_sense",
+      "drag",
+      "thrust_modifier",
+      "turn_penalty",
+      "oxygen_cost",
+      "metabolic_burden",
+      "growth_cost",
+      "reproduction_cost",
+      "juvenile_fragility",
+      "feeding_throughput",
+      "predation_risk_modifier",
+      "viability_index"
+    ]
+  },
+  "mechanical_hooks": {
+    "movement_cost": true,
+    "oxygen_stress": true,
+    "feeding_access": true,
+    "predation_attack_defense": true,
+    "egg_viability": true,
+    "life_history": true,
+    "developmental_failure_pressure": true,
+    "new_behavior_planner": false
+  },
+  "example_morphology_profiles": {
+    "balanced": {
+      "morphology_hash": "morph_40ca843ff4e2",
+      "labels": [
+        "force-mouthed aquatic organism"
+      ],
+      "affordances": {
+        "bite_force": 0.391,
+        "filter_rate": 0.34,
+        "reach": 0.308,
+        "armor_protection": 0.172,
+        "toxin_payload": 0.044,
+        "drag": 0.276,
+        "oxygen_cost": 0.335,
+        "feeding_throughput": 0.333,
+        "viability_index": 0.621
+      }
+    },
+    "large_head_bite": {
+      "morphology_hash": "morph_67504c25cc32",
+      "labels": [
+        "large-headed bite specialist"
+      ],
+      "affordances": {
+        "bite_force": 0.925,
+        "filter_rate": 0.238,
+        "reach": 0.308,
+        "drag": 0.41,
+        "oxygen_cost": 0.543,
+        "metabolic_burden": 0.377,
+        "feeding_throughput": 0.713,
+        "viability_index": 0.646
+      }
+    },
+    "bulk_filter": {
+      "morphology_hash": "morph_43a569388566",
+      "labels": [
+        "tiny-headed bulk filterer",
+        "bulk-bodied filter grazer",
+        "suction-feeding drifter"
+      ],
+      "affordances": {
+        "bite_force": 0.312,
+        "suction_force": 0.66,
+        "filter_rate": 0.834,
+        "drag": 0.321,
+        "oxygen_cost": 0.443,
+        "feeding_throughput": 0.75,
+        "viability_index": 0.744
+      }
+    },
+    "appendage_rich_soft": {
+      "morphology_hash": "morph_72634e75f7aa",
+      "labels": [
+        "appendage-rich soft-bodied organism",
+        "soft-bodied scavenger-like organism"
+      ],
+      "affordances": {
+        "reach": 0.89,
+        "grip": 0.677,
+        "armor_protection": 0.039,
+        "drag": 0.47,
+        "oxygen_cost": 0.46,
+        "predation_risk_modifier": 1.252,
+        "viability_index": 0.529
+      }
+    },
+    "chemical_defense": {
+      "morphology_hash": "morph_5eddf174c37f",
+      "labels": [
+        "chemical-defense specialist"
+      ],
+      "affordances": {
+        "armor_protection": 0.284,
+        "toxin_payload": 0.647,
+        "drag": 0.313,
+        "oxygen_cost": 0.391,
+        "metabolic_burden": 0.353,
+        "predation_risk_modifier": 0.843,
+        "viability_index": 0.574
+      }
+    }
+  },
+  "targeted_validation": {
+    "morphology_tests": "7 passed",
+    "regression_subset": "38 passed",
+    "evals_check": "pass",
+    "codex_standards": "9 passed",
+    "node_check_app_js": "pass"
+  },
+  "full_validation": {
+    "pytest_tests": "64 passed",
+    "evals_check": "pass",
+    "evals_runner": "pass",
+    "recovery_assays_json": {
+      "status": "pass",
+      "recovery_rate": 1.0,
+      "extinction_rate": 0.0,
+      "no_god_mode_reseed": true,
+      "mechanics_tuning_recommended": false
+    },
+    "make_lint": "pass",
+    "codex_standards": "9 passed",
+    "node_check_app_js": "pass"
+  },
+  "browser_smoke": {
+    "status": "pass",
+    "url": "http://127.0.0.1:8774/",
+    "title": "Aquagenesys v0.4.0",
+    "runtime": {
+      "tmux": "aquagenesys-v040",
+      "pid": 4120964,
+      "port": 8774
+    },
+    "schemas": {
+      "frame": "aquagenesys.frame.v3",
+      "state": "aquagenesys.state.v11",
+      "morphology": "aquagenesys.morphology.v1",
+      "lineage_story": "aquagenesys.lineage_story.v3"
+    },
+    "canvas": {
+      "nonblank": true,
+      "width": 780,
+      "height": 480,
+      "varied_samples": 84157
+    },
+    "panels_visible": [
+      "ecology_narrator",
+      "recovery_evidence",
+      "morphology_affordances",
+      "genealogy_explorer",
+      "lineage_story",
+      "focused_fish"
+    ],
+    "selected_fish_updates_morphology": true,
+    "compare_mode_ctrl_click": true,
+    "morphology_frame_signals_seen": [
+      "filter_slot_mouth",
+      "large_head_scale",
+      "armor_density",
+      "appendage_count",
+      "chemical_marker"
+    ],
+    "console_warnings_or_errors": 0,
+    "mobile_390px_horizontal_overflow": false,
+    "screenshot": "aquagenesys-v040-mobile-smoke.png"
+  },
+  "deferred": [
+    "affordance-aware behavior selection",
+    "evidence-governed skill inheritance",
+    "lineage fitness denominators",
+    "niche diversity tracking",
+    "model-generated durable behavior priors"
+  ]
+}

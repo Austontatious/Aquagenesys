@@ -1,0 +1,196 @@
+{
+  "schema": "aquagenesys.agent_mechanics_explainer.v1",
+  "date": "2026-05-23",
+  "repo": "/mnt/data/Aquagenesys",
+  "observed_version": {
+    "commit": "79161d8",
+    "version": "0.3.9",
+    "state_schema": "aquagenesys.state.v9",
+    "frame_schema": "aquagenesys.frame.v3",
+    "dashboard_schema": "aquagenesys.dashboard.v2",
+    "genealogy_schema": "aquagenesys.genealogy.v1",
+    "lineage_story_schema": "aquagenesys.lineage_story.v1"
+  },
+  "mechanisms": [
+    {
+      "name": "fish_agent",
+      "summary": "FishAgent is the current organism boundary: identity, biological genome, instruction genome, taught skills, physiology, memory, optional model intent, and lifecycle state.",
+      "code_references": [
+        "aquagenesys/agents/fish.py:546",
+        "aquagenesys/agents/fish.py:799",
+        "aquagenesys/agents/fish.py:846"
+      ],
+      "evidence_strength": "strong"
+    },
+    {
+      "name": "decision_loop",
+      "summary": "Each tick senses local context, updates drives, selects reflex/habit/model-intent action, applies ecological effects, records outcome, then attempts reproduction/death.",
+      "code_references": [
+        "aquagenesys/simulation/engine.py:199",
+        "aquagenesys/simulation/engine.py:337",
+        "aquagenesys/simulation/engine.py:452",
+        "aquagenesys/simulation/engine.py:595"
+      ],
+      "evidence_strength": "strong"
+    },
+    {
+      "name": "genetic_inheritance",
+      "summary": "Offspring receive a mutated single-parent FishGenome; mate contact gates paired reproduction but does not recombine mate genes.",
+      "code_references": [
+        "aquagenesys/agents/fish.py:48",
+        "aquagenesys/agents/fish.py:266",
+        "aquagenesys/simulation/engine.py:714"
+      ],
+      "evidence_strength": "strong"
+    },
+    {
+      "name": "instruction_inheritance",
+      "summary": "BehaviorInstructionGenome mutates across generations and bounded TaughtSkill objects can bias child policy fields.",
+      "code_references": [
+        "aquagenesys/agents/instructions.py:135",
+        "aquagenesys/agents/instructions.py:305",
+        "aquagenesys/agents/instructions.py:343",
+        "aquagenesys/simulation/engine.py:1037"
+      ],
+      "evidence_strength": "medium"
+    },
+    {
+      "name": "ecology_evaluator",
+      "summary": "The environment implicitly evaluates behavior and traits through energy, health, stress, resources, reproduction gates, egg viability, and death.",
+      "code_references": [
+        "aquagenesys/environment/puddle.py:16",
+        "aquagenesys/environment/puddle.py:280",
+        "aquagenesys/simulation/engine.py:1268",
+        "aquagenesys/simulation/engine.py:1514"
+      ],
+      "evidence_strength": "strong"
+    },
+    {
+      "name": "genealogy_observability",
+      "summary": "Bounded genealogy exposes live adults, viable eggs, dormant eggs, sampled dead ancestors, compact biology hashes, policy hashes, lineage summaries, and policy inheritance trails.",
+      "code_references": [
+        "aquagenesys/simulation/genealogy.py:14",
+        "aquagenesys/simulation/lineage_story.py:21",
+        "aquagenesys/web/static/app.js:1001"
+      ],
+      "evidence_strength": "medium"
+    }
+  ],
+  "loops": [
+    {
+      "loop": "individual_adaptation",
+      "exists_today": "weak_yes",
+      "mechanism": "Recent memory and recent outcomes influence a few heuristic branches and model uncertainty gates.",
+      "code_locations": [
+        "aquagenesys/agents/fish.py:510",
+        "aquagenesys/agents/fish.py:682",
+        "aquagenesys/agents/fish.py:740"
+      ],
+      "evidence_exposed": true,
+      "strength": "weak",
+      "missing_evidence": "No durable individual policy update or reward attribution."
+    },
+    {
+      "loop": "parent_child_teaching",
+      "exists_today": "yes",
+      "mechanism": "Parent memory/state/population can create bounded taught skills during reproduction; offspring inherit policy seeds and skills.",
+      "code_locations": [
+        "aquagenesys/agents/instructions.py:437",
+        "aquagenesys/simulation/engine.py:1037",
+        "aquagenesys/simulation/engine.py:1111"
+      ],
+      "evidence_exposed": true,
+      "strength": "medium",
+      "missing_evidence": "No direct skill-use or skill-payoff event."
+    },
+    {
+      "loop": "genetic_evolution",
+      "exists_today": "yes",
+      "mechanism": "Genes mutate, affect phenotype/survival/reproduction, and pass through offspring/eggs.",
+      "code_locations": [
+        "aquagenesys/agents/fish.py:266",
+        "aquagenesys/agents/life_history.py:83",
+        "aquagenesys/simulation/engine.py:714"
+      ],
+      "evidence_exposed": true,
+      "strength": "strong",
+      "missing_evidence": "No explicit lineage fitness score or two-parent recombination."
+    },
+    {
+      "loop": "lineage_selection",
+      "exists_today": "implicit_yes",
+      "mechanism": "Lineages with surviving adults or viable eggs remain visible and reproduce.",
+      "code_locations": [
+        "aquagenesys/simulation/dashboard.py:228",
+        "aquagenesys/simulation/genealogy.py:236",
+        "aquagenesys/simulation/lineage_story.py:122"
+      ],
+      "evidence_exposed": true,
+      "strength": "medium",
+      "missing_evidence": "No normalized lineage outperformance metric."
+    },
+    {
+      "loop": "ecological_recovery",
+      "exists_today": "yes",
+      "mechanism": "Egg banks, dormancy, hatching, parthenogenesis, and detritus/resource rebound can restore active adults without debug reseed.",
+      "code_locations": [
+        "aquagenesys/simulation/engine.py:1282",
+        "aquagenesys/simulation/engine.py:1538",
+        "evals/recovery_assays.py:40"
+      ],
+      "evidence_exposed": true,
+      "strength": "strong_for_recovery",
+      "missing_evidence": "Seeded assays are not broad Monte Carlo robustness proof."
+    },
+    {
+      "loop": "model_reflection_self_improvement",
+      "exists_today": "mostly_no",
+      "mechanism": "Model calls can produce short-lived actions only; model teaching is disabled by default and no durable verbal reflection is stored.",
+      "code_locations": [
+        "aquagenesys/agents/deliberation.py:35",
+        "aquagenesys/simulation/engine.py:527"
+      ],
+      "evidence_exposed": true,
+      "strength": "weak",
+      "missing_evidence": "No durable model-authored policy update in the default implementation."
+    }
+  ],
+  "missing_evidence": [
+    "Skill-use event and skill payoff attribution.",
+    "Per-policy survival/reproduction fitness normalized by exposure.",
+    "Per-gene field trajectory and causal ecological effect.",
+    "Multi-parent genetic or behavioral contribution.",
+    "Long-run seed sweep proving open-ended improvement.",
+    "Explicit uncertainty labels in lineage story claims."
+  ],
+  "v0_3_9_questions": [
+    "What is the smallest lineage story honestly supported by current data?",
+    "Can a taught behavior crossing generations be shown with skill hash and policy hash evidence?",
+    "Can descendant policy use be distinguished from merely carrying the policy?",
+    "Can helped/failed outcomes be shown without overclaiming causality?",
+    "Can ecological context be attached to each policy/skill event?",
+    "Can lineage stories label observed versus inferred claims?"
+  ],
+  "v0_4_0_questions": [
+    "How can richer morphology change the action space?",
+    "How can genes constrain cognition and behavior while staying inspectable?",
+    "How can weird organisms emerge from composable traits rather than fixed classes?",
+    "What ecological niches are needed before exotic traits matter?",
+    "How are tradeoffs preserved?",
+    "How is behavior evolution bounded and auditable?"
+  ],
+  "recommended_metrics": [
+    "per_policy_survival_ticks",
+    "per_policy_reproduction_success",
+    "per_policy_death_causes",
+    "skill_use_events",
+    "skill_descendant_outcomes",
+    "policy_transition_graph",
+    "gene_transition_graph",
+    "lineage_recovery_contribution",
+    "ecological_externality_by_lineage",
+    "niche_occupancy",
+    "counterfactual_policy_assays",
+    "lineage_story_uncertainty_labels"
+  ]
+}

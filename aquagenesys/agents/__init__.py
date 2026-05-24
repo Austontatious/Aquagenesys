@@ -2,6 +2,7 @@ from aquagenesys.agents.deliberation import FishDeliberationController, FishDeli
 from aquagenesys.agents.fish import Action, FishAgent, FishGenome, FishMemory, Perception
 from aquagenesys.agents.instructions import BehaviorInstructionGenome, InstructionPatchDecision, TaughtSkill
 from aquagenesys.agents.life_history import LifeHistoryProfile, derive_life_history
+from aquagenesys.agents.morphology import MorphologyAffordances, MorphologyGenome, interpret_morphology
 
 __all__ = [
     "Action",
@@ -13,7 +14,10 @@ __all__ = [
     "FishMemory",
     "InstructionPatchDecision",
     "LifeHistoryProfile",
+    "MorphologyAffordances",
+    "MorphologyGenome",
     "Perception",
     "TaughtSkill",
     "derive_life_history",
+    "interpret_morphology",
 ]

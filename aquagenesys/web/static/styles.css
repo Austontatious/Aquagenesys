@@ -259,15 +259,34 @@ button:hover {
   background: var(--panel-3);
 }
 
-.recovery-evidence {
+.recovery-evidence,
+.morphology-observatory,
+.skill-evidence {
   max-width: 1180px;
   padding: 18px 0 8px;
   border-top: 1px solid var(--line);
   margin-top: 16px;
 }
 
-.recovery-evidence .dense-list {
+.recovery-evidence .dense-list,
+.morphology-observatory .dense-list,
+.skill-evidence .dense-list {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.morphology-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.morphology-summary div {
+  min-height: 54px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-3);
 }
 
 .genealogy-explorer {

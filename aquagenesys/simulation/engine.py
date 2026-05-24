@@ -19,11 +19,20 @@ from aquagenesys.agents.instructions import (
     stable_hash,
     validate_instruction_patch,
 )
+from aquagenesys.agents.morphology import MORPHOLOGY_SCHEMA, morphology_state_payload
 from aquagenesys.environment.puddle import EnvironmentConfig, PuddleEnvironment
 from aquagenesys.simulation.dashboard import build_observatory_dashboard
 from aquagenesys.simulation.egg import EggEntity
 from aquagenesys.simulation.genealogy import build_genealogy
 from aquagenesys.simulation.lineage_story import build_lineage_story
+from aquagenesys.simulation.skill_evidence import (
+    SkillUseEvidence,
+    aggregate_skill_evidence,
+    classify_skill_outcome,
+    matched_skills_for_action,
+    skill_identity,
+    skill_source,
+)
 from aquagenesys.storage import FishArchive
 
 
@@ -95,6 +104,7 @@ class AquagenesysSimulation:
         self.events: deque[dict[str, Any]] = deque(maxlen=36)
         self.reproduction_log: deque[dict[str, Any]] = deque(maxlen=48)
         self.instruction_log: deque[dict[str, Any]] = deque(maxlen=64)
+        self.skill_evidence_log: deque[dict[str, Any]] = deque(maxlen=160)
         self.births = 0
         self.births_reproduction = 0
         self.births_hatched = 0
@@ -167,6 +177,7 @@ class AquagenesysSimulation:
                     round(fish.x, 3),
                     round(fish.y, 3),
                     fish.genome.metabolism,
+                    fish.genome.morphology_hash,
                     round(fish.energy, 3),
                 )
                 for fish in self.fish[:12]
@@ -230,10 +241,31 @@ class AquagenesysSimulation:
             fish.update_internal_state(perception)
             before_energy = fish.energy
             before_health = fish.health
+            before_hunger = fish.hunger
+            before_stress = fish.stress
+            before_fear = fish.fear
+            before_reproductive_drive = fish.reproductive_drive
             action = self._select_action(fish, perception, deliberations_used)
             if action.source == "model":
                 deliberations_used += 1
+            skill_matches = matched_skills_for_action(fish, perception, action)
             outcome = self._apply_action(fish, action, perception, deaths)
+            if skill_matches:
+                self._record_skill_use_outcomes(
+                    fish,
+                    perception,
+                    action,
+                    outcome,
+                    before={
+                        "energy": before_energy,
+                        "health": before_health,
+                        "hunger": before_hunger,
+                        "stress": before_stress,
+                        "fear": before_fear,
+                        "reproductive_drive": before_reproductive_drive,
+                    },
+                    matches=skill_matches,
+                )
             fish.record_outcome(
                 self.tick,
                 action,
@@ -337,11 +369,11 @@ class AquagenesysSimulation:
     def _sense(self, fish: FishAgent) -> Perception:
         sample = self.environment.sample(fish.x, fish.y)
         stress = sample.stress_score(
-            oxygen_need=fish.genome.oxygen_need,
+            oxygen_need=fish.effective_oxygen_need,
             ph_preference=fish.genome.ph_preference,
             temperature_preference=fish.genome.temperature_preference,
             turbidity_tolerance=fish.genome.turbidity_tolerance,
-            toxin_tolerance=fish.genome.toxin_tolerance,
+            toxin_tolerance=fish.effective_toxin_tolerance,
         )
         gradients = {
             "food": self.environment.gradient(fish.x, fish.y, "food"),
@@ -357,7 +389,7 @@ class AquagenesysSimulation:
             sample=sample.payload(),
             gradients=gradients,
             nearest_food=self._best_resource_vector(fish),
-            nearest_shelter=self._best_field_vector(fish, "shelter", prefer_high=True, radius=fish.genome.sensory_range),
+            nearest_shelter=self._best_field_vector(fish, "shelter", prefer_high=True, radius=fish.effective_sensory_range),
             nearest_mate=neighbors["mate"],
             nearest_prey=neighbors["prey"],
             nearest_threat=neighbors["threat"],
@@ -394,12 +426,15 @@ class AquagenesysSimulation:
         return unit(dx, dy)
 
     def _best_resource_vector(self, fish: FishAgent) -> tuple[float, float, float]:
+        affordances = fish.morphology_affordances
         field = "food"
-        if fish.genome.metabolism == "filter":
+        if affordances.filter_rate > max(0.58, affordances.scrape_rate, affordances.bite_force):
             field = "plankton"
-        elif fish.genome.metabolism == "scavenger":
+        elif fish.genome.metabolism == "filter":
+            field = "plankton"
+        elif fish.genome.metabolism == "scavenger" or (affordances.reach > 0.62 and affordances.grip > 0.50):
             field = "decomposition"
-        return self._best_field_vector(fish, field, prefer_high=True, radius=fish.genome.sensory_range)
+        return self._best_field_vector(fish, field, prefer_high=True, radius=fish.effective_sensory_range)
 
     def _best_field_vector(self, fish: FishAgent, field_name: str, *, prefer_high: bool, radius: float) -> tuple[float, float, float]:
         ix = int(round(fish.x))
@@ -426,21 +461,25 @@ class AquagenesysSimulation:
         nearest_prey = (0.0, 0.0, 999.0)
         nearest_threat = (0.0, 0.0, 999.0)
         count = 0
+        sensory_radius = fish.effective_sensory_range
+        fish_affordances = fish.morphology_affordances
         for other in self.fish:
             if other.fish_id == fish.fish_id:
                 continue
             distance = hypot(other.x - fish.x, other.y - fish.y)
-            if distance > max(3.0, fish.genome.sensory_range * 1.6):
+            if distance > max(3.0, sensory_radius * 1.6):
                 continue
             count += 1
             dx, dy = unit(other.x - fish.x, other.y - fish.y)
             compatible_mate = other.species_id == fish.species_id or other.genome.metabolism == fish.genome.metabolism
             if compatible_mate and distance < nearest_mate[2]:
                 nearest_mate = (dx, dy, distance)
-            if other.radius < fish.radius * 0.82 and distance < nearest_prey[2]:
+            if other.radius < fish.radius * (0.76 + fish_affordances.reach * 0.10) and distance < nearest_prey[2]:
                 nearest_prey = (dx, dy, distance)
-            threat_score = other.genome.aggression + other.radius * 0.06
-            if threat_score > fish.genome.aggression + fish.radius * 0.04 and distance < nearest_threat[2]:
+            other_affordances = other.morphology_affordances
+            threat_score = other.genome.aggression + other.radius * 0.04 + other_affordances.bite_force * 0.28 + other_affordances.toxin_payload * other_affordances.toxin_delivery * 0.18
+            self_defense = fish.genome.aggression + fish.radius * 0.03 + fish_affordances.armor_protection * 0.20 + fish_affordances.toxin_payload * fish_affordances.toxin_delivery * 0.12
+            if threat_score > self_defense and distance < nearest_threat[2]:
                 nearest_threat = (dx, dy, distance)
         return {
             "mate": nearest_mate,
@@ -595,9 +634,10 @@ class AquagenesysSimulation:
     def _apply_action(self, fish: FishAgent, action: Action, perception: Perception, deaths: dict[int, str]) -> str:
         action = action.normalized()
         current_x, current_y = self.environment.current_at(fish.x, fish.y)
-        thrust = 0.88 + fish.genome.tail_length * 0.20 - fish.genome.body_depth * 0.06
-        maneuver = 0.86 + fish.genome.fin_span * 0.18 + fish.genome.tail_length * 0.04
-        drag = 0.88 + fish.genome.body_depth * 0.11 + fish.genome.body_size * 0.05
+        affordances = fish.morphology_affordances
+        thrust = (0.78 + fish.genome.tail_length * 0.13 - fish.genome.body_depth * 0.04) * affordances.thrust_modifier
+        maneuver = 0.78 + fish.genome.fin_span * 0.13 + fish.genome.tail_length * 0.03 - affordances.turn_penalty * 0.14
+        drag = 0.78 + affordances.drag * 0.42 + fish.genome.body_depth * 0.04 + fish.genome.body_size * 0.03
         speed_cap = fish.genome.max_speed * thrust * (0.48 + fish.health * 0.36 + max(0.0, 1.0 - fish.hunger) * 0.16)
         intensity = action.intensity
         if action.kind == "rest":
@@ -614,7 +654,7 @@ class AquagenesysSimulation:
         else:
             desired_heading = fish.heading
         turn_delta = wrap_angle(desired_heading - fish.heading)
-        turn_capacity = 0.10 + fish.genome.turning * 0.26 + fish.genome.fin_span * 0.08
+        turn_capacity = max(0.06, (0.10 + fish.genome.turning * 0.24 + fish.genome.fin_span * 0.06 + maneuver * 0.03) - affordances.turn_penalty * 0.08)
         applied_turn = max(-turn_capacity, min(turn_capacity, turn_delta))
         heading = wrap_angle(fish.heading + fish.turn_rate * 0.48 + applied_turn * 0.52)
         forward_x = cos(heading)
@@ -624,7 +664,7 @@ class AquagenesysSimulation:
         current_forward = fish.vx * forward_x + fish.vy * forward_y
         current_lateral = fish.vx * side_x + fish.vy * side_y
         target_speed = speed_cap * clamp(0.18 + intensity * 0.86, 0.0, 1.18)
-        acceleration = (target_speed - current_forward) * (0.18 + fish.genome.max_speed * 0.08 + fish.genome.tail_length * 0.06)
+        acceleration = (target_speed - current_forward) * (0.16 + fish.genome.max_speed * 0.07 + fish.genome.tail_length * 0.04 + affordances.thrust_modifier * 0.04)
         forward_speed = current_forward + acceleration
         lateral_speed = current_lateral * (0.55 - min(0.16, fish.genome.fin_span * 0.08))
         fish.vx = forward_x * forward_speed + side_x * lateral_speed + current_x * 0.34
@@ -640,12 +680,17 @@ class AquagenesysSimulation:
         fish.update_locomotion_state(speed=actual_speed, target_speed=target_speed, turn_delta=applied_turn)
 
         moved = abs(fish.vx) + abs(fish.vy)
-        basal = 0.070 + fish.genome.body_size * 0.025
-        fish.energy -= basal + moved * (0.105 + fish.genome.body_size * 0.018) * drag
+        basal = 0.058 + fish.genome.body_size * 0.018 + affordances.metabolic_burden * 0.036 + affordances.oxygen_cost * 0.018
+        fish.energy -= basal + moved * (0.092 + fish.genome.body_size * 0.014 + affordances.drag * 0.030) * drag
         fish.energy -= perception.stress * 0.10
-        fish.health = clamp(fish.health - perception.stress * 0.006 + max(0.0, perception.sample["oxygen"] - fish.genome.oxygen_need) * 0.002)
-        self.environment.consume("oxygen", fish.x, fish.y, 0.0015 + fish.genome.oxygen_need * 0.002)
-        self.environment.add("waste", fish.x, fish.y, 0.0018 + fish.genome.body_size * 0.0012)
+        fish.health = clamp(
+            fish.health
+            - perception.stress * 0.006
+            - max(0.0, 0.28 - affordances.viability_index) * 0.0025
+            + max(0.0, perception.sample["oxygen"] - fish.effective_oxygen_need) * 0.002
+        )
+        self.environment.consume("oxygen", fish.x, fish.y, 0.0013 + fish.effective_oxygen_need * 0.0024 + affordances.oxygen_cost * 0.0009)
+        self.environment.add("waste", fish.x, fish.y, 0.0016 + fish.genome.body_size * 0.0010 + affordances.metabolic_burden * 0.0012)
 
         outcome = "moved"
         if action.kind in {"forage", "eat", "school", "explore"}:
@@ -668,47 +713,80 @@ class AquagenesysSimulation:
         return outcome
 
     def _feed_from_environment(self, fish: FishAgent) -> float:
+        affordances = fish.morphology_affordances
         metabolism = fish.genome.metabolism
-        if metabolism == "filter":
+        if affordances.filter_rate > max(0.58, affordances.scrape_rate, affordances.bite_force):
             field = "plankton"
-            multiplier = 9.5
-        elif metabolism == "scavenger":
+            multiplier = 6.7 + affordances.filter_rate * 4.2 + affordances.suction_force * 1.2
+            bite_amount = 0.014 + affordances.filter_rate * 0.022
+        elif metabolism == "filter":
+            field = "plankton"
+            multiplier = 7.0 + affordances.filter_rate * 3.0
+            bite_amount = 0.015 + affordances.filter_rate * 0.018
+        elif metabolism == "scavenger" or (affordances.reach > 0.62 and affordances.grip > 0.48):
             field = "decomposition"
-            multiplier = 7.0
+            multiplier = 5.2 + affordances.reach * 1.8 + affordances.grip * 2.2
+            bite_amount = 0.012 + affordances.reach * 0.010 + affordances.grip * 0.012
         elif metabolism == "predator":
             field = "food"
-            multiplier = 4.2
+            multiplier = 3.2 + affordances.bite_force * 2.2 + affordances.suction_force * 0.7
+            bite_amount = 0.010 + affordances.bite_force * 0.014
         else:
             field = "food"
-            multiplier = 7.8
-        taken = self.environment.consume(field, fish.x, fish.y, 0.020 + fish.genome.body_size * 0.016)
-        nutrient_taken = self.environment.consume("nutrients", fish.x, fish.y, 0.004 + fish.genome.body_size * 0.004)
+            multiplier = 5.8 + max(affordances.scrape_rate, affordances.filter_rate) * 2.5 + affordances.feeding_throughput * 1.2
+            bite_amount = 0.014 + affordances.feeding_throughput * 0.018
+        taken = self.environment.consume(field, fish.x, fish.y, bite_amount + fish.genome.body_size * 0.008)
+        nutrient_taken = self.environment.consume("nutrients", fish.x, fish.y, 0.003 + affordances.scrape_rate * 0.004 + fish.genome.body_size * 0.002)
         gain = taken * multiplier + nutrient_taken * 2.5
         fish.energy = min(96.0, fish.energy + gain)
-        fish.hunger = clamp(fish.hunger - gain * 0.026)
+        fish.hunger = clamp(fish.hunger - gain * (0.018 + affordances.feeding_throughput * 0.010))
         return gain
 
     def _try_hunt(self, hunter: FishAgent, deaths: dict[int, str]) -> bool:
+        hunter_affordances = hunter.morphology_affordances
         candidates = [
             fish
             for fish in self.fish
             if fish.fish_id != hunter.fish_id
             and fish.fish_id not in deaths
-            and fish.radius < hunter.radius * 0.92
-            and hypot(fish.x - hunter.x, fish.y - hunter.y) < hunter.radius + fish.radius + 1.8
+            and fish.radius < hunter.radius * (0.84 + hunter_affordances.bite_force * 0.10 + hunter_affordances.reach * 0.06)
+            and hypot(fish.x - hunter.x, fish.y - hunter.y) < hunter.radius + fish.radius + 1.1 + hunter_affordances.reach * 1.4
         ]
         if not candidates:
             return False
         target = min(candidates, key=lambda item: hypot(item.x - hunter.x, item.y - hunter.y))
-        attack = hunter.genome.aggression + hunter.energy * 0.006 + hunter.genome.body_size * 0.20
-        defense = target.genome.max_speed * 0.48 + target.health * 0.32 + target.genome.risk_tolerance * 0.14
+        target_affordances = target.morphology_affordances
+        attack = (
+            hunter.genome.aggression
+            + hunter.energy * 0.005
+            + hunter.genome.body_size * 0.12
+            + hunter_affordances.bite_force * 0.40
+            + hunter_affordances.strike_impulse * 0.25
+            + hunter_affordances.toxin_payload * hunter_affordances.toxin_delivery * 0.18
+            + hunter_affordances.reach * 0.08
+            - hunter_affordances.drag * 0.08
+        )
+        defense = (
+            target.genome.max_speed * 0.34
+            + target.health * 0.28
+            + target.genome.risk_tolerance * 0.12
+            + target_affordances.armor_protection * 0.44
+            + target_affordances.thrust_modifier * 0.08
+            + max(0.0, 1.0 - target_affordances.predation_risk_modifier) * 0.18
+        )
         if attack * self.rng.uniform(0.70, 1.35) <= defense * self.rng.uniform(0.70, 1.25):
-            hunter.energy -= 0.32
+            hunter.energy -= 0.28 + hunter_affordances.metabolic_burden * 0.12
+            toxin_contact = target_affordances.toxin_payload * target_affordances.toxin_delivery * max(0.0, 1.0 - hunter_affordances.toxin_resistance)
+            if toxin_contact > 0.05:
+                hunter.health = clamp(hunter.health - toxin_contact * 0.035)
             return False
         deaths[target.fish_id] = "predation"
         hunter.energy = min(110.0, hunter.energy + max(4.0, target.energy * 0.54))
         hunter.hunger = clamp(hunter.hunger - 0.34)
         hunter.fear = clamp(hunter.fear + 0.08)
+        toxin_contact = target_affordances.toxin_payload * target_affordances.toxin_delivery * max(0.0, 1.0 - hunter_affordances.toxin_resistance)
+        if toxin_contact > 0.05:
+            hunter.health = clamp(hunter.health - toxin_contact * 0.055)
         return True
 
     def _maybe_reproduce(self, parent: FishAgent, perception: Perception) -> ReproductionResult:
@@ -736,7 +814,8 @@ class AquagenesysSimulation:
             self._record_reproduction_gate(parent, reason, perception, mode=mode, chance=chance)
             return ReproductionResult([], [], reason, mode=mode)
 
-        reserve = 18.0 + parent.genome.body_size * 6.0
+        affordances = parent.morphology_affordances
+        reserve = 18.0 + parent.genome.body_size * 5.0 + affordances.reproduction_cost * 4.5 + affordances.metabolic_burden * 2.0
         available = max(0.0, parent.energy - reserve)
         reproductive_energy = min(parent.energy - 22.0, available * life.offspring_investment)
         if parthenogenetic:
@@ -746,7 +825,7 @@ class AquagenesysSimulation:
             return ReproductionResult([], [], "clutch_energy_too_low", mode=mode)
 
         env_quality = clamp(perception.reproduction_score * 0.62 + parent.health * 0.22 + parent.energy / 110.0 * 0.16 - parent.stress * 0.14)
-        clutch_target = max(1, int(round(life.base_clutch_size * (0.45 + env_quality * 0.82))))
+        clutch_target = max(1, int(round(life.base_clutch_size * (0.45 + env_quality * 0.82 - affordances.reproduction_cost * 0.10 - affordances.juvenile_fragility * 0.06))))
         energy_limited = max(1, int(reproductive_energy / 4.2))
         clutch_count = max(1, min(life.base_clutch_size + 3, clutch_target, energy_limited))
         energy_per = reproductive_energy / clutch_count
@@ -756,7 +835,7 @@ class AquagenesysSimulation:
 
         newborns: list[FishAgent] = []
         eggs: list[EggEntity] = []
-        parent.energy -= reproductive_energy + 2.2
+        parent.energy -= reproductive_energy + 2.2 + affordances.reproduction_cost * 1.6
         parent.reproductive_drive = 0.08 if not parthenogenetic else 0.02
         parent.reproduction_cooldown = life.reproduction_interval_ticks + (24 if parthenogenetic else 0)
         parent.last_reproduction_tick = self.tick
@@ -820,6 +899,12 @@ class AquagenesysSimulation:
             egg_count=len(eggs),
             energy_cost=reproductive_energy,
         )
+        self._record_skill_reproduction_after_use(
+            parent,
+            reason=reason,
+            offspring_count=len(newborns),
+            egg_count=len(eggs),
+        )
         if newborns:
             for child in newborns:
                 self._event("birth", parent=parent.fish_id, child=child.fish_id, lineage=child.lineage_id, mode=mode)
@@ -856,7 +941,7 @@ class AquagenesysSimulation:
             return "too_old_or_low_fertility"
         if parent.reproduction_cooldown > 0:
             return "cooldown"
-        if parent.energy < 24.0 + parent.genome.body_size * 6.0:
+        if parent.energy < 24.0 + parent.genome.body_size * 5.0 + parent.morphology_affordances.reproduction_cost * 5.0:
             return "low_energy"
         if parent.health < 0.35:
             return "low_health"
@@ -876,14 +961,15 @@ class AquagenesysSimulation:
         return "ready"
 
     def _mate_contact(self, parent: FishAgent, perception: Perception) -> bool:
-        if perception.nearest_mate[2] < max(14.0, parent.genome.sensory_range * 1.9):
+        sensory_range = parent.effective_sensory_range
+        if perception.nearest_mate[2] < max(14.0, sensory_range * 1.9):
             return True
         for other in self.fish:
             if other.fish_id == parent.fish_id:
                 continue
             if other.genome.metabolism != parent.genome.metabolism:
                 continue
-            if hypot(other.x - parent.x, other.y - parent.y) <= parent.genome.sensory_range * 2.2:
+            if hypot(other.x - parent.x, other.y - parent.y) <= sensory_range * 2.2:
                 return True
         return False
 
@@ -946,7 +1032,7 @@ class AquagenesysSimulation:
         dx = self.rng.uniform(-1.0, 1.0)
         dy = self.rng.uniform(-1.0, 1.0)
         dx, dy = unit(dx, dy)
-        viability = self._offspring_viability(parent, perception, energy_per, parthenogenetic=parthenogenetic)
+        viability = self._offspring_viability(parent, perception, energy_per, parthenogenetic=parthenogenetic, genome=genome)
         child = FishAgent(
             fish_id=self.next_fish_id,
             species_id=genome.species_id,
@@ -995,7 +1081,7 @@ class AquagenesysSimulation:
         dx = self.rng.uniform(-1.0, 1.0)
         dy = self.rng.uniform(-1.0, 1.0)
         dx, dy = unit(dx, dy)
-        viability = self._offspring_viability(parent, perception, energy_per, parthenogenetic=parthenogenetic)
+        viability = self._offspring_viability(parent, perception, energy_per, parthenogenetic=parthenogenetic, genome=genome)
         dormant = self.rng.random() < clamp(life.dormancy_bias * 0.38 + max(0.0, 0.54 - perception.reproduction_score) * 0.32)
         egg = EggEntity(
             egg_id=self.next_egg_id,
@@ -1025,11 +1111,23 @@ class AquagenesysSimulation:
         self._record_instruction_inheritance(parent, egg=egg, patch_decision=patch_decision, delivery="egg")
         return egg
 
-    def _offspring_viability(self, parent: FishAgent, perception: Perception, energy_per: float, *, parthenogenetic: bool) -> float:
+    def _offspring_viability(
+        self,
+        parent: FishAgent,
+        perception: Perception,
+        energy_per: float,
+        *,
+        parthenogenetic: bool,
+        genome: FishGenome | None = None,
+    ) -> float:
         life = parent.life_history
+        offspring_affordances = (genome or parent.genome).morphology_affordances()
         viability = 0.28 + min(0.34, energy_per / 26.0) + perception.reproduction_score * 0.25 + parent.health * 0.16
         viability -= parent.stress * 0.16
         viability -= life.mutation_load * 0.12
+        viability -= offspring_affordances.juvenile_fragility * 0.12
+        viability -= offspring_affordances.growth_cost * 0.05
+        viability -= max(0.0, 0.42 - offspring_affordances.viability_index) * 0.26
         if parthenogenetic:
             viability -= 0.10 + life.parthenogenesis_alleles * 0.015
         return clamp(viability, 0.08, 0.98)
@@ -1119,6 +1217,7 @@ class AquagenesysSimulation:
     ) -> None:
         self.instruction_inheritance_events += 1
         target_policy = child.instruction_genome if child is not None else egg.instruction_genome if egg is not None else parent.instruction_genome
+        target_skills = child.taught_skills if child is not None else egg.taught_skills if egg is not None else []
         target_id = child.fish_id if child is not None else None
         egg_id = egg.egg_id if egg is not None else None
         entry = {
@@ -1132,13 +1231,35 @@ class AquagenesysSimulation:
             "parent_policy_hash": parent.instruction_genome.policy_hash,
             "offspring_policy_hash": target_policy.policy_hash,
             "offspring_policy_label": target_policy.policy_label,
-            "skill_count": len(child.taught_skills if child is not None else egg.taught_skills if egg is not None else []),
+            "skill_count": len(target_skills),
+            "skill_hashes": [skill.skill_hash for skill in target_skills],
+            "skills": [skill.payload(compact=True) for skill in target_skills],
             "patch_id": patch_decision.patch_id if patch_decision else "",
             "patch_accepted": patch_decision.accepted if patch_decision else None,
             "patch_reason": patch_decision.reason if patch_decision else "",
         }
         self.instruction_log.append(entry)
         self._record_instruction_event("offspring_instruction_inheritance", fish=parent, child=child, egg=egg, patch_decision=patch_decision, extra=entry)
+        taught_now_hash = patch_decision.skill.skill_hash if patch_decision and patch_decision.accepted and patch_decision.skill else ""
+        for skill in target_skills:
+            target_fish = child if child is not None else None
+            self._record_skill_evidence(
+                event_type="skill_inherited",
+                fish=target_fish,
+                skill=skill,
+                source="taught" if skill.skill_hash == taught_now_hash else "inherited",
+                parent_id=parent.fish_id,
+                child_id=target_id,
+                egg_id=egg_id,
+                lineage_id=(child.lineage_id if child is not None else egg.lineage_id if egg is not None else parent.lineage_id),
+                generation=(child.generation if child is not None else egg.generation if egg is not None else parent.generation),
+                delivery=delivery,
+                context="offspring_instruction_inheritance",
+                immediate_outcome=delivery,
+                evidence_strength="weak",
+                effect_label="insufficient_evidence",
+                detail="Offspring received a bounded taught skill; use and outcome are tracked separately.",
+            )
 
     def _record_instruction_event(
         self,
@@ -1174,6 +1295,167 @@ class AquagenesysSimulation:
             payload.update(extra)
         self.archive.write_lifecycle_event(payload)
 
+    def _record_skill_use_outcomes(
+        self,
+        fish: FishAgent,
+        perception: Perception,
+        action: Action,
+        outcome: str,
+        *,
+        before: dict[str, float],
+        matches: list[dict[str, Any]],
+    ) -> None:
+        deltas = {
+            "energy": fish.energy - before["energy"],
+            "health": fish.health - before["health"],
+            "hunger": fish.hunger - before["hunger"],
+            "stress": fish.stress - before["stress"],
+            "fear": fish.fear - before["fear"],
+            "reproductive_drive": fish.reproductive_drive - before["reproductive_drive"],
+        }
+        for match in matches[:3]:
+            skill = match["skill"]
+            effect_label, outcome_score, evidence_strength, detail = classify_skill_outcome(skill, action, outcome, deltas)
+            self._record_skill_evidence(
+                event_type="skill_outcome_observed",
+                fish=fish,
+                skill=skill,
+                source=skill_source(skill, fish),
+                parent_id=getattr(skill, "source_parent_id", None),
+                context=str(match.get("context", "")),
+                action=action.kind,
+                immediate_outcome=outcome,
+                outcome_score=outcome_score,
+                evidence_strength=evidence_strength,
+                effect_label=effect_label,
+                detail=(
+                    f"{detail}; deltas energy={deltas['energy']:.3f}, hunger={deltas['hunger']:.3f}, "
+                    f"stress={deltas['stress']:.3f}, health={deltas['health']:.3f}"
+                ),
+            )
+
+    def _record_skill_reproduction_after_use(
+        self,
+        parent: FishAgent,
+        *,
+        reason: str,
+        offspring_count: int,
+        egg_count: int,
+    ) -> None:
+        total_descendants = offspring_count + egg_count
+        if total_descendants <= 0:
+            return
+        for skill in parent.taught_skills:
+            if not self._recent_skill_use(parent.fish_id, skill.skill_hash, window=720):
+                continue
+            self._record_skill_evidence(
+                event_type="skill_descendant_outcome",
+                fish=parent,
+                skill=skill,
+                source=skill_source(skill, parent),
+                parent_id=getattr(skill, "source_parent_id", None),
+                context="carrier_reproduced_after_observed_use",
+                action="reproduce",
+                immediate_outcome=reason,
+                outcome_score=float(total_descendants),
+                evidence_strength="moderate",
+                effect_label="helped_possible",
+                detail=(
+                    f"Skill carrier reproduced after prior observed skill use: "
+                    f"{offspring_count} live offspring and {egg_count} eggs. This is temporal association, not proof of causality."
+                ),
+                reproduction_after_use=True,
+            )
+
+    def _record_skill_death_after_use(self, fish: FishAgent, cause: str) -> None:
+        for skill in fish.taught_skills:
+            recent_use = self._recent_skill_use(fish.fish_id, skill.skill_hash, window=48)
+            if not recent_use:
+                continue
+            risky_cause = cause in {"starvation", "environment", "shock", "predation"}
+            self._record_skill_evidence(
+                event_type="skill_descendant_outcome",
+                fish=fish,
+                skill=skill,
+                source=skill_source(skill, fish),
+                parent_id=getattr(skill, "source_parent_id", None),
+                context="carrier_died_after_observed_use",
+                action=str(recent_use.get("action", "")),
+                immediate_outcome=f"death:{cause}",
+                outcome_score=-1.0 if risky_cause else 0.0,
+                evidence_strength="weak",
+                effect_label="harmed_possible" if risky_cause else "unclear",
+                detail="Skill carrier died after a recent observed use; the run cannot isolate whether the skill contributed.",
+            )
+
+    def _recent_skill_use(self, fish_id: int, skill_hash: str, *, window: int) -> dict[str, Any] | None:
+        for event in reversed(self.skill_evidence_log):
+            if event.get("event_type") != "skill_outcome_observed":
+                continue
+            if event.get("fish_id") != fish_id or event.get("skill_hash") != skill_hash:
+                continue
+            if self.tick - int(event.get("tick", self.tick) or self.tick) <= window:
+                return event
+            return None
+        return None
+
+    def _record_skill_evidence(
+        self,
+        *,
+        event_type: str,
+        skill: TaughtSkill,
+        fish: FishAgent | None = None,
+        source: str = "unknown",
+        parent_id: int | None = None,
+        child_id: int | None = None,
+        egg_id: int | None = None,
+        lineage_id: int | None = None,
+        generation: int | None = None,
+        context: str = "",
+        action: str = "",
+        immediate_outcome: str = "",
+        outcome_score: float | None = None,
+        evidence_strength: str = "weak",
+        effect_label: str = "insufficient_evidence",
+        delivery: str = "",
+        detail: str = "",
+        reproduction_after_use: bool = False,
+    ) -> None:
+        identity = skill_identity(skill)
+        event = SkillUseEvidence(
+            event_type=event_type,
+            tick=self.tick,
+            fish_id=fish.fish_id if fish is not None else child_id,
+            lineage_id=int(lineage_id if lineage_id is not None else fish.lineage_id if fish is not None else getattr(skill, "source_lineage_id", 0) or 0),
+            skill_id=identity["skill_id"],
+            skill_hash=identity["skill_hash"],
+            skill_name=identity["skill_name"],
+            skill_type=identity["skill_type"],
+            source=source,
+            parent_id=parent_id,
+            child_id=child_id,
+            egg_id=egg_id,
+            generation=int(generation if generation is not None else fish.generation if fish is not None else 0),
+            context=context,
+            action=action,
+            immediate_outcome=immediate_outcome,
+            outcome_score=outcome_score,
+            evidence_strength=evidence_strength,
+            effect_label=effect_label,
+            delivery=delivery,
+            detail=detail,
+            reproduction_after_use=reproduction_after_use,
+        ).payload()
+        self.skill_evidence_log.append(event)
+        self.archive.write_lifecycle_event(
+            {
+                "run_id": self.run_id,
+                **event,
+                "event_type": event_type,
+                "claim_boundary": "observational_association_not_causal_proof",
+            }
+        )
+
     def _biological_genome_hash(self, genome: FishGenome) -> str:
         payload = genome.payload()
         payload.pop("phenotype", None)
@@ -1205,6 +1487,8 @@ class AquagenesysSimulation:
             "egg_id": egg.egg_id if egg is not None else None,
             "biological_genome_hash": self._biological_genome_hash(fish.genome),
             "phenotype_hash": self._phenotype_hash(fish.genome),
+            "morphology_hash": fish.genome.morphology_hash,
+            "morphology_labels": fish.genome.morphology_labels(),
             "instruction_policy_hash": fish.instruction_genome.policy_hash,
             "instruction_policy_hash_short": fish.instruction_genome.policy_hash_short,
             "instruction_policy_label": fish.instruction_genome.policy_label,
@@ -1245,6 +1529,8 @@ class AquagenesysSimulation:
                 "death_cause": death_cause,
                 "biological_genome_hash": payload["biological_genome_hash"],
                 "phenotype_hash": payload["phenotype_hash"],
+                "morphology_hash": payload["morphology_hash"],
+                "morphology_labels": payload["morphology_labels"],
                 "instruction_policy_hash": payload["instruction_policy_hash"],
                 "instruction_policy_label": payload["instruction_policy_label"],
                 "taught_skill_hashes": payload["taught_skill_hashes"],
@@ -1270,6 +1556,9 @@ class AquagenesysSimulation:
             return "starvation"
         if fish.health <= 0.0:
             return "environment"
+        affordances = fish.morphology_affordances
+        if affordances.viability_index < 0.18 and self.rng.random() < (0.18 - affordances.viability_index) * 0.010:
+            return "developmental_failure"
         life = fish.life_history
         if fish.age > life.expected_lifespan_ticks and self.rng.random() < 0.010:
             return "age"
@@ -1288,15 +1577,23 @@ class AquagenesysSimulation:
             egg.age_ticks += 1
             sample = self.environment.sample(egg.x, egg.y)
             life = egg.genome.life_history()
+            affordances = egg.genome.morphology_affordances()
             stress = sample.stress_score(
-                oxygen_need=egg.genome.oxygen_need * 0.82,
+                oxygen_need=(egg.genome.oxygen_need + affordances.oxygen_cost * 0.08) * 0.82,
                 ph_preference=egg.genome.ph_preference,
                 temperature_preference=egg.genome.temperature_preference,
                 turbidity_tolerance=egg.genome.turbidity_tolerance * 1.12,
-                toxin_tolerance=egg.genome.toxin_tolerance,
+                toxin_tolerance=clamp(egg.genome.toxin_tolerance + affordances.toxin_resistance * 0.10 - affordances.toxin_self_cost * 0.04, 0.02, 1.35),
             )
             decay = egg.decay_rate * (life.dormancy_decay_modifier if egg.dormant else 1.0)
-            egg.viability = clamp(egg.viability - decay - stress * 0.010 - max(0.0, sample.toxins - 0.34) * 0.018)
+            egg.viability = clamp(
+                egg.viability
+                - decay
+                - stress * 0.010
+                - max(0.0, sample.toxins - 0.34) * 0.018
+                - affordances.juvenile_fragility * 0.0008
+                - max(0.0, 0.34 - affordances.viability_index) * 0.0015
+            )
             if egg.age_ticks > life.egg_viability_ticks and not egg.dormant:
                 egg.viability = clamp(egg.viability - 0.010)
             if sample.toxins > 0.72 or sample.oxygen < 0.14:
@@ -1348,6 +1645,7 @@ class AquagenesysSimulation:
         dx = self.rng.uniform(-1.0, 1.0)
         dy = self.rng.uniform(-1.0, 1.0)
         dx, dy = unit(dx, dy)
+        affordances = egg.genome.morphology_affordances()
         child = FishAgent(
             fish_id=self.next_fish_id,
             species_id=egg.species_id,
@@ -1361,7 +1659,7 @@ class AquagenesysSimulation:
             hunger=0.42,
             fear=0.12,
             stress=0.10,
-            health=clamp(0.38 + egg.viability * 0.54),
+            health=clamp(0.34 + egg.viability * 0.50 + affordances.viability_index * 0.10 - affordances.juvenile_fragility * 0.08),
             reproductive_drive=0.01,
             generation=egg.generation,
             parent_ids=egg.parent_ids,
@@ -1377,6 +1675,19 @@ class AquagenesysSimulation:
         self.births_hatched += 1
         self.births_reproduction += 1
         self.eggs_hatched += 1
+        for skill in child.taught_skills:
+            self._record_skill_evidence(
+                event_type="skill_inherited",
+                fish=child,
+                skill=skill,
+                source="inherited",
+                parent_id=egg.parent_ids[0] if egg.parent_ids else getattr(skill, "source_parent_id", None),
+                egg_id=egg.egg_id,
+                child_id=child.fish_id,
+                delivery="egg_hatch",
+                context="egg_hatched_with_inherited_skill",
+                detail="Egg hatch preserved the bounded taught skill into a live descendant.",
+            )
         if self.biosphere_state == "dormant":
             self.recovery_events += 1
             self.last_recovery_kind = "egg_hatch"
@@ -1482,6 +1793,12 @@ class AquagenesysSimulation:
             "phenotype_hash": (
                 self._phenotype_hash(source.genome) if source is not None else self._phenotype_hash(egg.genome) if egg is not None else None
             ),
+            "morphology_hash": (
+                source.genome.morphology_hash if source is not None else egg.genome.morphology_hash if egg is not None else None
+            ),
+            "morphology_labels": (
+                source.genome.morphology_labels() if source is not None else egg.genome.morphology_labels() if egg is not None else []
+            ),
             "instruction_policy_hash": (
                 source.instruction_genome.policy_hash
                 if source is not None
@@ -1516,6 +1833,7 @@ class AquagenesysSimulation:
         self.deaths_by_cause[cause] += 1
         self.environment.add_detritus(fish.x, fish.y, min(0.78, 0.12 + fish.energy * 0.004 + fish.radius * 0.030))
         self._event("death", fish_id=fish.fish_id, cause=cause, lineage=fish.lineage_id)
+        self._record_skill_death_after_use(fish, cause)
         self._archive_lifecycle_event("death", fish=fish, death_cause=cause)
         self._record_agent_code_snapshot(fish, event_type="death_code_snapshot", death_cause=cause)
 
@@ -1630,6 +1948,38 @@ class AquagenesysSimulation:
                     viable += 1
         return total_score / max(1, total_cells), viable
 
+    def _skill_evidence_payload(self) -> dict[str, Any]:
+        return aggregate_skill_evidence(
+            events=list(self.skill_evidence_log),
+            fish=self.fish,
+            eggs=self.eggs,
+            tick=self.tick,
+        )
+
+    def _morphology_payload(self) -> dict[str, Any]:
+        organisms = [
+            morphology_state_payload(organism_id=fish.fish_id, lineage_id=fish.lineage_id, morphology=fish.genome.morphology)
+            for fish in self.fish
+        ]
+        labels = Counter(label for item in organisms for label in item["labels"])
+        viability_values = [float(item["affordances"]["viability_index"]) for item in organisms]
+        drag_values = [float(item["affordances"]["drag"]) for item in organisms]
+        throughput_values = [float(item["affordances"]["feeding_throughput"]) for item in organisms]
+        return {
+            "schema": MORPHOLOGY_SCHEMA,
+            "summary": {
+                "organisms": len(organisms),
+                "distinct_morphologies": len({item["morphology_hash"] for item in organisms}),
+                "average_viability_index": round(sum(viability_values) / max(1, len(viability_values)), 3),
+                "average_drag": round(sum(drag_values) / max(1, len(drag_values)), 3),
+                "average_feeding_throughput": round(sum(throughput_values) / max(1, len(throughput_values)), 3),
+                "high_cost_count": sum(1 for item in organisms if float(item["affordances"]["metabolic_burden"]) >= 0.58 or float(item["affordances"]["oxygen_cost"]) >= 0.58),
+                "low_viability_count": sum(1 for item in organisms if float(item["affordances"]["viability_index"]) < 0.42),
+                "top_labels": [{"label": label, "count": count} for label, count in labels.most_common(8)],
+            },
+            "organisms": organisms,
+        }
+
     def telemetry(self) -> dict[str, Any]:
         population = len(self.fish)
         egg_count = len(self.eggs)
@@ -1640,6 +1990,7 @@ class AquagenesysSimulation:
         sources = Counter(entry["source"] for entry in self.decision_log)
         species = Counter(fish.species_id for fish in self.fish)
         metabolism = Counter(fish.genome.metabolism for fish in self.fish)
+        morphology_payload = self._morphology_payload()
         policy_variants = Counter(fish.instruction_genome.policy_label for fish in self.fish)
         policy_hashes = Counter(fish.instruction_genome.policy_hash_short for fish in self.fish)
         viability_score, viable_cells = self.environmental_viability()
@@ -1674,6 +2025,7 @@ class AquagenesysSimulation:
             "average_reproductive_drive": round(sum(fish.reproductive_drive for fish in self.fish) / max(1, population), 3),
             "dominant_metabolism": metabolism.most_common(1)[0][0] if metabolism else "none",
             "metabolism_counts": dict(metabolism),
+            "morphology": morphology_payload["summary"],
             "species_clusters": [
                 {
                     "label": f"S{index}",
@@ -1706,6 +2058,7 @@ class AquagenesysSimulation:
                 "rejection_reasons": dict(self.instruction_rejection_reasons.most_common(8)),
                 "recent_events": list(reversed(self.instruction_log))[:16],
             },
+            "skill_evidence": self._skill_evidence_payload(),
             "model": {
                 "enabled": self.config.deliberation_enabled,
                 "base_url": self.config.llm_base_url,
@@ -1734,8 +2087,9 @@ class AquagenesysSimulation:
         telemetry = self.telemetry()
         dashboard = self.dashboard(telemetry)
         genealogy = self.genealogy(telemetry)
+        morphology = self._morphology_payload()
         return {
-            "schema": "aquagenesys.state.v9",
+            "schema": "aquagenesys.state.v11",
             "tick": self.tick,
             "run_id": self.run_id,
             "config": {
@@ -1754,6 +2108,7 @@ class AquagenesysSimulation:
             "fish": [fish.payload() for fish in self.fish],
             "eggs": [egg.payload() for egg in self.eggs],
             "organisms": [fish.payload() for fish in self.fish],
+            "morphology": morphology,
             "telemetry": telemetry,
             "dashboard": dashboard,
             "genealogy": genealogy,
