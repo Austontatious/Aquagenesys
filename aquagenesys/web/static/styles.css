@@ -261,6 +261,7 @@ button:hover {
 
 .recovery-evidence,
 .morphology-observatory,
+.behavior-observatory,
 .skill-evidence {
   max-width: 1180px;
   padding: 18px 0 8px;
@@ -270,18 +271,21 @@ button:hover {
 
 .recovery-evidence .dense-list,
 .morphology-observatory .dense-list,
+.behavior-observatory .dense-list,
 .skill-evidence .dense-list {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
-.morphology-summary {
+.morphology-summary,
+.behavior-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
   margin-top: 10px;
 }
 
-.morphology-summary div {
+.morphology-summary div,
+.behavior-summary div {
   min-height: 54px;
   padding: 10px;
   border: 1px solid var(--line);

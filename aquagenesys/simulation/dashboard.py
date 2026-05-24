@@ -27,6 +27,7 @@ def build_observatory_dashboard(
     recent_decisions = list(decision_log)
     lineages = _lineage_summary(fish, eggs)
     morphology = _morphology_summary(telemetry, fish)
+    behavior = _behavior_summary(telemetry, fish, recent_decisions)
     policies = _policy_summary(fish)
     teaching = _teaching_summary(telemetry, recent_instruction)
     skill_evidence = _skill_evidence_summary(telemetry)
@@ -42,7 +43,7 @@ def build_observatory_dashboard(
         timeline=timeline,
         field_averages=field_averages or {},
     )
-    narrator = _narrator(telemetry, population, lineages, morphology, policies, teaching, diagnostics, timeline, recovery)
+    narrator = _narrator(telemetry, population, lineages, morphology, behavior, policies, teaching, diagnostics, timeline, recovery)
     return {
         "schema": "aquagenesys.dashboard.v2",
         "tick": tick,
@@ -52,6 +53,7 @@ def build_observatory_dashboard(
         "population": population,
         "lineages": lineages,
         "morphology": morphology,
+        "behavior": behavior,
         "policies": policies,
         "teaching": teaching,
         "skill_evidence": skill_evidence,
@@ -328,6 +330,46 @@ def _primary_costs(affordances: Any) -> list[str]:
     return [label for label, value in sorted(values.items(), key=lambda item: item[1], reverse=True)[:3] if value >= 0.22]
 
 
+def _behavior_summary(telemetry: dict[str, Any], fish: Sequence[Any], decision_log: list[dict[str, Any]]) -> dict[str, Any]:
+    telemetry_summary = telemetry.get("behavior", {}) or {}
+    action_counts = Counter(str(row.get("action", "unknown")) for row in decision_log[-120:])
+    context_counts = Counter(tag for row in decision_log[-120:] for tag in row.get("context_tags", []))
+    affordance_counts = Counter(tag for row in decision_log[-120:] for tag in row.get("affordance_tags", []))
+    warnings = Counter(tag for row in decision_log[-120:] for tag in row.get("mismatch_warnings", []))
+    notable: list[dict[str, Any]] = []
+    for item in fish:
+        rationale = getattr(item, "last_behavior_rationale", {}) or {}
+        if not rationale:
+            continue
+        candidate = (rationale.get("candidate_summary") or [{}])[0]
+        notable.append(
+            {
+                "fish_id": getattr(item, "fish_id", 0),
+                "lineage_id": getattr(item, "lineage_id", 0),
+                "current_action": rationale.get("current_action", "drift"),
+                "action_reason": rationale.get("action_reason", ""),
+                "top_candidate": candidate.get("action", rationale.get("current_action", "drift")),
+                "score": candidate.get("score", 0),
+                "context_tags": list(rationale.get("context_tags", []))[:5],
+                "affordance_tags": list(rationale.get("affordance_tags", []))[:5],
+                "policy_influence": list(rationale.get("policy_influence", []))[:3],
+                "skill_influence": list(rationale.get("skill_influence", []))[:3],
+                "mismatch_warnings": list(rationale.get("mismatch_warnings", []))[:3],
+            }
+        )
+    notable.sort(key=lambda row: (len(row["mismatch_warnings"]), abs(float(row.get("score", 0) or 0))), reverse=True)
+    return {
+        "schema": "aquagenesys.behavior_dashboard.v1",
+        "summary": telemetry_summary,
+        "top_actions": telemetry_summary.get("top_actions") or [{"action": action, "count": count} for action, count in action_counts.most_common(8)],
+        "top_context_tags": telemetry_summary.get("top_context_tags") or [{"tag": tag, "count": count} for tag, count in context_counts.most_common(8)],
+        "top_affordance_tags": telemetry_summary.get("top_affordance_tags") or [{"tag": tag, "count": count} for tag, count in affordance_counts.most_common(8)],
+        "top_mismatch_warnings": telemetry_summary.get("top_mismatch_warnings") or [{"warning": warning, "count": count} for warning, count in warnings.most_common(6)],
+        "notable": notable[:8],
+        "claim_boundary": "Action rationales are bounded local scoring traces; ecology, not the selector, determines persistence.",
+    }
+
+
 def _policy_summary(fish: Sequence[Any]) -> dict[str, Any]:
     labels: Counter[str] = Counter(item.instruction_genome.policy_label for item in fish)
     hashes: Counter[str] = Counter(item.instruction_genome.policy_hash_short for item in fish)
@@ -502,6 +544,7 @@ def _narrator(
     population: dict[str, Any],
     lineages: dict[str, Any],
     morphology: dict[str, Any],
+    behavior: dict[str, Any],
     policies: dict[str, Any],
     teaching: dict[str, Any],
     diagnostics: dict[str, Any],
@@ -542,6 +585,12 @@ def _narrator(
         morph_summary = morphology.get("summary", {}) or {}
         points.append(
             f"Morphology mix is led by {morphology_label}; average viability {morph_summary.get('average_viability_index', '-')}, drag {morph_summary.get('average_drag', '-')}."
+        )
+    top_action = (behavior.get("top_actions") or [{}])[0]
+    if top_action.get("action"):
+        tags = ", ".join(item["tag"].replace("_", " ") for item in (behavior.get("top_affordance_tags") or [])[:3]) or "no dominant affordance tags"
+        points.append(
+            f"Affordance-aware behavior is led by {str(top_action.get('action')).replace('_', ' ')} x{top_action.get('count', 0)}; visible body tags include {tags}."
         )
     dominant_policy = policies.get("dominant")
     if dominant_policy:

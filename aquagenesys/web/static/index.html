@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Aquagenesys v0.4.0</title>
+    <title>Aquagenesys v0.4.1</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
@@ -13,7 +13,7 @@
         <section class="puddle" aria-label="Aquagenesys puddle viewer">
           <canvas id="pond" width="1200" height="760"></canvas>
           <div class="hud">
-            <b>Aquagenesys v0.4.0</b>
+            <b>Aquagenesys v0.4.1</b>
             <span id="status">connecting</span>
           </div>
           <div id="puddleState" class="state-banner" hidden>DEAD PUDDLE - chemistry still running</div>
@@ -93,6 +93,18 @@
             </div>
             <ul id="morphologyLabels" class="dense-list"></ul>
             <ul id="morphologyNotable" class="dense-list"></ul>
+          </section>
+
+          <section class="behavior-observatory" aria-label="Affordance-aware behavior observatory">
+            <h2>Affordance-Aware Behavior</h2>
+            <div class="behavior-summary">
+              <div><dt>Actions</dt><dd id="behaviorActions">0</dd></div>
+              <div><dt>Contexts</dt><dd id="behaviorContexts">0</dd></div>
+              <div><dt>Affordances</dt><dd id="behaviorAffordances">0</dd></div>
+              <div><dt>Warnings</dt><dd id="behaviorWarnings">0</dd></div>
+            </div>
+            <ul id="behaviorTopActions" class="dense-list"></ul>
+            <ul id="behaviorNotable" class="dense-list"></ul>
           </section>
 
           <section class="genealogy-explorer" aria-label="Lineage and policy genealogy explorer">
@@ -224,6 +236,11 @@
             <div><dt>Strategy</dt><dd id="fishStrategy">-</dd></div>
             <div><dt>Teaching</dt><dd id="fishTeaching">-</dd></div>
             <div><dt>Decision</dt><dd id="fishDecision">-</dd></div>
+            <div><dt>Behavior</dt><dd id="fishBehavior">-</dd></div>
+            <div><dt>Candidates</dt><dd id="fishCandidates">-</dd></div>
+            <div><dt>Context Tags</dt><dd id="fishContextTags">-</dd></div>
+            <div><dt>Policy / Skill Influence</dt><dd id="fishInfluence">-</dd></div>
+            <div><dt>Mismatch Warnings</dt><dd id="fishWarnings">-</dd></div>
             <div><dt>Intent</dt><dd id="fishIntent">-</dd></div>
             <div><dt>Energy</dt><dd id="fishEnergy">-</dd></div>
             <div><dt>Lineage context</dt><dd id="fishLineageContext">-</dd></div>

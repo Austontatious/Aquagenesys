@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aquagenesys"
-version = "0.4.0"
+version = "0.4.1"
 description = "A real-time 2D dirty-puddle ecology with modular morphology affordances and observatory UX."
 requires-python = ">=3.10"
 dependencies = [

@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from math import atan2, cos, hypot, sin
 from pathlib import Path
 from random import Random
-from typing import Any
+from typing import Any, Sequence
 
 from aquagenesys.agents import Action, FishAgent, FishDeliberationController, FishDeliberationResult, FishGenome, Perception
+from aquagenesys.agents.behavior import BEHAVIOR_SCHEMA, behavior_state_payload, build_behavior_decision, summarize_behavior_payload
 from aquagenesys.agents.fish import clamp, unit, wrap_angle
 from aquagenesys.agents.instructions import (
     BehaviorInstructionGenome,
@@ -489,13 +490,22 @@ class AquagenesysSimulation:
         }
 
     def _select_action(self, fish: FishAgent, perception: Perception, deliberations_used: int) -> Action:
+        decision = build_behavior_decision(
+            fish,
+            perception,
+            self.rng,
+            biosphere_state=self.biosphere_state,
+            population=len(self.fish),
+        )
         reflex = fish.reflex_action(perception)
         if reflex is not None:
+            self._store_behavior_rationale(fish, decision.payload(), reflex, override="reflex override")
             return reflex
-        habit = fish.heuristic_action(perception, self.rng)
+        habit = decision.to_action()
+        self._store_behavior_rationale(fish, decision.payload(), habit)
         if fish.model_intent is not None and fish.model_intent_ttl > 0:
             intent = fish.model_intent.normalized()
-            return Action(
+            model_action = Action(
                 intent.kind,
                 intent.dx,
                 intent.dy,
@@ -504,6 +514,8 @@ class AquagenesysSimulation:
                 f"{intent.reason} ttl={fish.model_intent_ttl}",
                 intent.confidence,
             ).normalized()
+            self._store_behavior_rationale(fish, decision.payload(), model_action, override="model intent override")
+            return model_action
         if deliberations_used + self._queued_deliberations_this_tick >= self.config.global_deliberations_per_tick:
             return habit
         if fish.model_pending or fish.fish_id in self._pending_model_calls:
@@ -515,6 +527,18 @@ class AquagenesysSimulation:
             return habit
         self._queue_deliberation(fish, perception)
         return habit
+
+    def _store_behavior_rationale(self, fish: FishAgent, rationale: dict[str, Any], action: Action, *, override: str = "") -> None:
+        payload = dict(rationale)
+        payload["schema"] = BEHAVIOR_SCHEMA
+        payload["current_action"] = action.kind
+        payload["action_reason"] = action.reason
+        payload["source"] = action.source
+        if override:
+            warnings = list(payload.get("mismatch_warnings", []))
+            warnings.append(override)
+            payload["mismatch_warnings"] = warnings[:6]
+        fish.last_behavior_rationale = payload
 
     def _deliberation_controller(self) -> FishDeliberationController:
         if self._controller is None:
@@ -642,6 +666,10 @@ class AquagenesysSimulation:
         intensity = action.intensity
         if action.kind == "rest":
             intensity *= 0.18
+        if action.kind in {"anchor_feed", "chemical_defense"}:
+            intensity *= 0.22
+        if action.kind == "filter_feed":
+            intensity *= 0.42
         if action.kind in {"flee", "escape"}:
             intensity *= 1.25
         desired_dx = action.dx * max(0.05, intensity) + current_x * 0.40
@@ -693,14 +721,21 @@ class AquagenesysSimulation:
         self.environment.add("waste", fish.x, fish.y, 0.0016 + fish.genome.body_size * 0.0010 + affordances.metabolic_burden * 0.0012)
 
         outcome = "moved"
-        if action.kind in {"forage", "eat", "school", "explore"}:
-            gain = self._feed_from_environment(fish)
+        if action.kind in {"forage", "eat", "school", "explore", "filter_feed", "graze", "scavenge", "anchor_feed"}:
+            gain = self._feed_from_environment(fish, action.kind)
             if gain > 0.18:
                 outcome = "fed"
-        if action.kind == "hunt":
+        if action.kind in {"hunt", "strike"}:
             hunted = self._try_hunt(fish, deaths)
             if hunted:
                 outcome = "successful_hunt"
+        if action.kind == "chemical_defense":
+            toxin_effect = affordances.toxin_payload * affordances.toxin_delivery
+            fish.energy -= 0.08 + affordances.metabolic_burden * 0.05 + toxin_effect * 0.12
+            fish.health = clamp(fish.health - affordances.toxin_self_cost * 0.010)
+            fish.fear = clamp(fish.fear - toxin_effect * 0.10)
+            fish.stress = clamp(fish.stress - toxin_effect * 0.040 + affordances.toxin_self_cost * 0.010)
+            outcome = "chemical_defense"
         if action.kind == "shelter":
             shelter = self.environment.sample(fish.x, fish.y).shelter
             fish.fear = clamp(fish.fear - shelter * 0.060)
@@ -712,10 +747,26 @@ class AquagenesysSimulation:
             outcome = "rested"
         return outcome
 
-    def _feed_from_environment(self, fish: FishAgent) -> float:
+    def _feed_from_environment(self, fish: FishAgent, action_kind: str = "forage") -> float:
         affordances = fish.morphology_affordances
         metabolism = fish.genome.metabolism
-        if affordances.filter_rate > max(0.58, affordances.scrape_rate, affordances.bite_force):
+        if action_kind == "filter_feed":
+            field = "plankton"
+            multiplier = 6.8 + affordances.filter_rate * 4.8 + affordances.suction_force * 1.4
+            bite_amount = 0.012 + affordances.filter_rate * 0.024
+        elif action_kind == "scavenge":
+            field = "decomposition"
+            multiplier = 5.0 + affordances.reach * 2.0 + affordances.grip * 2.4
+            bite_amount = 0.010 + affordances.reach * 0.012 + affordances.grip * 0.014
+        elif action_kind == "graze":
+            field = "food"
+            multiplier = 5.6 + affordances.scrape_rate * 3.3 + affordances.feeding_throughput * 0.9
+            bite_amount = 0.012 + affordances.scrape_rate * 0.018
+        elif action_kind == "anchor_feed":
+            field = "decomposition" if affordances.reach > 0.62 and affordances.grip > 0.48 else "plankton" if affordances.filter_rate > affordances.scrape_rate else "food"
+            multiplier = 4.9 + max(affordances.reach, affordances.filter_rate, affordances.scrape_rate) * 3.0
+            bite_amount = 0.010 + max(affordances.reach, affordances.filter_rate, affordances.scrape_rate) * 0.012
+        elif affordances.filter_rate > max(0.58, affordances.scrape_rate, affordances.bite_force):
             field = "plankton"
             multiplier = 6.7 + affordances.filter_rate * 4.2 + affordances.suction_force * 1.2
             bite_amount = 0.014 + affordances.filter_rate * 0.022
@@ -1328,6 +1379,8 @@ class AquagenesysSimulation:
                 outcome_score=outcome_score,
                 evidence_strength=evidence_strength,
                 effect_label=effect_label,
+                context_tags=match.get("context_tags", ()),
+                affordance_tags=match.get("affordance_tags", ()),
                 detail=(
                     f"{detail}; deltas energy={deltas['energy']:.3f}, hunger={deltas['hunger']:.3f}, "
                     f"stress={deltas['stress']:.3f}, health={deltas['health']:.3f}"
@@ -1420,6 +1473,8 @@ class AquagenesysSimulation:
         delivery: str = "",
         detail: str = "",
         reproduction_after_use: bool = False,
+        context_tags: Sequence[str] | None = None,
+        affordance_tags: Sequence[str] | None = None,
     ) -> None:
         identity = skill_identity(skill)
         event = SkillUseEvidence(
@@ -1445,6 +1500,8 @@ class AquagenesysSimulation:
             delivery=delivery,
             detail=detail,
             reproduction_after_use=reproduction_after_use,
+            context_tags=tuple(context_tags or ()),
+            affordance_tags=tuple(affordance_tags or ()),
         ).payload()
         self.skill_evidence_log.append(event)
         self.archive.write_lifecycle_event(
@@ -1492,6 +1549,16 @@ class AquagenesysSimulation:
             "instruction_policy_hash": fish.instruction_genome.policy_hash,
             "instruction_policy_hash_short": fish.instruction_genome.policy_hash_short,
             "instruction_policy_label": fish.instruction_genome.policy_label,
+            "behavior_rationale": {
+                "current_action": (fish.last_behavior_rationale or {}).get("current_action", ""),
+                "action_reason": (fish.last_behavior_rationale or {}).get("action_reason", ""),
+                "candidate_summary": list((fish.last_behavior_rationale or {}).get("candidate_summary", []))[:3],
+                "context_tags": list((fish.last_behavior_rationale or {}).get("context_tags", []))[:8],
+                "affordance_tags": list((fish.last_behavior_rationale or {}).get("affordance_tags", []))[:8],
+                "policy_influence": list((fish.last_behavior_rationale or {}).get("policy_influence", []))[:5],
+                "skill_influence": list((fish.last_behavior_rationale or {}).get("skill_influence", []))[:5],
+                "mismatch_warnings": list((fish.last_behavior_rationale or {}).get("mismatch_warnings", []))[:4],
+            },
             "taught_skill_hashes": [skill.skill_hash for skill in fish.taught_skills],
             "accepted_instruction_patch_ids": list(fish.accepted_instruction_patch_ids[-8:]),
             "rejected_instruction_patch_ids": list(fish.rejected_instruction_patch_ids[-8:]),
@@ -1533,6 +1600,7 @@ class AquagenesysSimulation:
                 "morphology_labels": payload["morphology_labels"],
                 "instruction_policy_hash": payload["instruction_policy_hash"],
                 "instruction_policy_label": payload["instruction_policy_label"],
+                "behavior_rationale": payload["behavior_rationale"],
                 "taught_skill_hashes": payload["taught_skill_hashes"],
                 "accepted_instruction_patch_ids": payload["accepted_instruction_patch_ids"],
                 "rejected_instruction_patch_ids": payload["rejected_instruction_patch_ids"],
@@ -1899,6 +1967,7 @@ class AquagenesysSimulation:
         return "agent_lifecycle_pressure"
 
     def _record_decision(self, fish: FishAgent, action: Action, outcome: str) -> None:
+        behavior = fish.last_behavior_rationale or {}
         self.decision_log.append(
             {
                 "tick": self.tick,
@@ -1912,6 +1981,11 @@ class AquagenesysSimulation:
                 "energy": round(fish.energy, 2),
                 "health": round(fish.health, 3),
                 "budget": fish.model_budget,
+                "context_tags": list(behavior.get("context_tags", []))[:8],
+                "affordance_tags": list(behavior.get("affordance_tags", []))[:8],
+                "policy_influence": list(behavior.get("policy_influence", []))[:5],
+                "skill_influence": list(behavior.get("skill_influence", []))[:5],
+                "mismatch_warnings": list(behavior.get("mismatch_warnings", []))[:4],
             }
         )
 
@@ -1980,6 +2054,21 @@ class AquagenesysSimulation:
             "organisms": organisms,
         }
 
+    def _behavior_payload(self) -> dict[str, Any]:
+        organisms = [
+            behavior_state_payload(
+                organism_id=fish.fish_id,
+                lineage_id=fish.lineage_id,
+                rationale=fish.last_behavior_rationale,
+            )
+            for fish in self.fish
+        ]
+        return {
+            "schema": BEHAVIOR_SCHEMA,
+            "summary": summarize_behavior_payload(organisms),
+            "organisms": organisms,
+        }
+
     def telemetry(self) -> dict[str, Any]:
         population = len(self.fish)
         egg_count = len(self.eggs)
@@ -1991,6 +2080,7 @@ class AquagenesysSimulation:
         species = Counter(fish.species_id for fish in self.fish)
         metabolism = Counter(fish.genome.metabolism for fish in self.fish)
         morphology_payload = self._morphology_payload()
+        behavior_payload = self._behavior_payload()
         policy_variants = Counter(fish.instruction_genome.policy_label for fish in self.fish)
         policy_hashes = Counter(fish.instruction_genome.policy_hash_short for fish in self.fish)
         viability_score, viable_cells = self.environmental_viability()
@@ -2026,6 +2116,7 @@ class AquagenesysSimulation:
             "dominant_metabolism": metabolism.most_common(1)[0][0] if metabolism else "none",
             "metabolism_counts": dict(metabolism),
             "morphology": morphology_payload["summary"],
+            "behavior": behavior_payload["summary"],
             "species_clusters": [
                 {
                     "label": f"S{index}",
@@ -2088,8 +2179,9 @@ class AquagenesysSimulation:
         dashboard = self.dashboard(telemetry)
         genealogy = self.genealogy(telemetry)
         morphology = self._morphology_payload()
+        behavior = self._behavior_payload()
         return {
-            "schema": "aquagenesys.state.v11",
+            "schema": "aquagenesys.state.v12",
             "tick": self.tick,
             "run_id": self.run_id,
             "config": {
@@ -2109,6 +2201,7 @@ class AquagenesysSimulation:
             "eggs": [egg.payload() for egg in self.eggs],
             "organisms": [fish.payload() for fish in self.fish],
             "morphology": morphology,
+            "behavior": behavior,
             "telemetry": telemetry,
             "dashboard": dashboard,
             "genealogy": genealogy,

@@ -140,10 +140,12 @@ def run_eval() -> int:
             failures.append("missing observatory dashboard")
         if expected.get("requires_genealogy") and state.get("genealogy", {}).get("schema") != "aquagenesys.genealogy.v1":
             failures.append("missing genealogy explorer state")
-        if expected.get("requires_lineage_story") and state.get("lineage_story", {}).get("schema") != "aquagenesys.lineage_story.v3":
+        if expected.get("requires_lineage_story") and state.get("lineage_story", {}).get("schema") != "aquagenesys.lineage_story.v4":
             failures.append("missing lineage story state")
         if expected.get("requires_morphology") and state.get("morphology", {}).get("schema") != "aquagenesys.morphology.v1":
             failures.append("missing morphology state")
+        if expected.get("requires_behavior") and state.get("behavior", {}).get("schema") != "aquagenesys.behavior.v1":
+            failures.append("missing behavior rationale state")
         if expected.get("requires_narrator") and not state.get("dashboard", {}).get("narrator", {}).get("headline"):
             failures.append("missing ecology narrator")
         if "fields" in frame.get("environment", {}):
@@ -202,6 +204,8 @@ def run_eval() -> int:
                 "lineage_story_count": state.get("lineage_story", {}).get("summary", {}).get("story_count", 0),
                 "morphology_schema": state.get("morphology", {}).get("schema", ""),
                 "distinct_morphologies": state.get("morphology", {}).get("summary", {}).get("distinct_morphologies", 0),
+                "behavior_schema": state.get("behavior", {}).get("schema", ""),
+                "top_behavior_actions": state.get("behavior", {}).get("summary", {}).get("top_actions", [])[:4],
                 "frame_bytes": len(json.dumps(frame)),
                 "state_bytes": len(json.dumps(state)),
             }
@@ -213,7 +217,7 @@ def run_eval() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Aquagenesys v0.4.0 eval harness")
+    parser = argparse.ArgumentParser(description="Aquagenesys v0.4.1 eval harness")
     parser.add_argument("--check", action="store_true", help="validate eval scaffolding only")
     args = parser.parse_args(argv)
     if args.check:

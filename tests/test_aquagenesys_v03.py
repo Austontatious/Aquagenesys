@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 from math import pi
 import time
@@ -57,13 +57,13 @@ def test_simulation_runs_fish_agent_loop_and_observable_decisions() -> None:
     starting_signature = sim._reset_signature()
     sim.run(24)
     state = sim.state()
-    assert state["schema"] == "aquagenesys.state.v11"
+    assert state["schema"] == "aquagenesys.state.v12"
     assert state["fish"]
     assert state["telemetry"]["population"] > 0
     assert state["telemetry"]["agent_decisions"]
     assert state["dashboard"]["schema"] == "aquagenesys.dashboard.v2"
     assert state["dashboard"]["narrator"]["headline"]
-    assert state["lineage_story"]["schema"] == "aquagenesys.lineage_story.v3"
+    assert state["lineage_story"]["schema"] == "aquagenesys.lineage_story.v4"
     assert state["lineage_story"]["questions"]
     assert state["telemetry"]["model"]["calls"] == 0
     assert sim._reset_signature() != starting_signature
@@ -136,6 +136,10 @@ def test_sparse_model_deliberation_uses_controller_when_budget_allows(monkeypatc
             archive_every_ticks=0,
         )
     )
+    for fish in sim.fish:
+        fish.genome = replace(fish.genome, aggression=0.0)
+        fish.hunger = 0.10
+        fish.energy = 80.0
     monkeypatch.setattr(
         "aquagenesys.agents.fish.FishAgent.should_deliberate",
         lambda self, perception, rng, *, global_enabled: global_enabled,
@@ -178,6 +182,10 @@ def test_model_deliberation_is_nonblocking_and_becomes_ttl_intent(monkeypatch) -
             archive_every_ticks=0,
         )
     )
+    for fish in sim.fish:
+        fish.genome = replace(fish.genome, aggression=0.0)
+        fish.hunger = 0.10
+        fish.energy = 80.0
     monkeypatch.setattr(
         "aquagenesys.agents.fish.FishAgent.should_deliberate",
         lambda self, perception, rng, *, global_enabled: global_enabled,

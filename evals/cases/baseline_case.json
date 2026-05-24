@@ -10,7 +10,7 @@
     "deliberation_enabled": false
   },
   "expected": {
-    "schema": "aquagenesys.state.v11",
+    "schema": "aquagenesys.state.v12",
     "frame_schema": "aquagenesys.frame.v3",
     "max_frame_state_ratio": 0.55,
     "min_population": 1,
@@ -19,6 +19,7 @@
     "requires_genealogy": true,
     "requires_lineage_story": true,
     "requires_morphology": true,
+    "requires_behavior": true,
     "requires_narrator": true,
     "model_calls": 0,
     "instruction_inheritance_enabled": true,

@@ -626,6 +626,7 @@ class FishAgent:
     recent_outcomes: list[str] = field(default_factory=list)
     last_perception: Perception | None = None
     last_decision: Action = field(default_factory=lambda: Action("drift", 0.0, 0.0, 0.2, "init", "initial drift"))
+    last_behavior_rationale: dict[str, Any] = field(default_factory=dict)
     model_intent: Action | None = None
     model_intent_ttl: int = 0
     last_model_decision: Action | None = None
@@ -734,7 +735,16 @@ class FishAgent:
         self.last_perception = perception
 
     def reflex_action(self, perception: Perception) -> Action | None:
+        affordances = self.morphology_affordances
         risk_threshold = 0.68 if self.instruction_genome.risk_posture == "cautious" else 0.82 if self.instruction_genome.risk_posture == "bold" else 0.76
+        risk_threshold = clamp(
+            risk_threshold
+            + affordances.armor_protection * 0.11
+            + affordances.toxin_payload * affordances.toxin_delivery * 0.06
+            - affordances.tissue_vulnerability * 0.08,
+            0.50,
+            0.92,
+        )
         if self.health < 0.18:
             dx, dy = perception.vector_for("shelter")
             return Action("shelter", dx, dy, 0.72, "reflex", "critical health seeks shelter", 0.88).normalized()
@@ -760,6 +770,10 @@ class FishAgent:
             return Action("flee", dx, dy, intensity, "reflex", "nearby threat dominates", 0.80).normalized()
         if self.hunger > 0.90 and perception.nearest_food[2] < self.effective_sensory_range * 1.6:
             dx, dy = perception.vector_for("food")
+            if affordances.filter_rate > max(0.58, affordances.bite_force, affordances.scrape_rate):
+                return Action("filter_feed", dx, dy, 0.62, "reflex", "hunger near starvation but filter body avoids chase", 0.78).normalized()
+            if affordances.reach > 0.62 and affordances.grip > 0.48:
+                return Action("anchor_feed", dx, dy, 0.54, "reflex", "hunger near starvation uses local reach", 0.76).normalized()
             return Action("eat", dx, dy, 0.88, "reflex", "hunger near starvation", 0.78).normalized()
         return None
 
@@ -926,6 +940,7 @@ class FishAgent:
             "phenotype": self.genome.phenotype_payload(),
             "locomotion": self.locomotion_payload(),
             "decision": self.last_decision.payload(),
+            "behavior": self.last_behavior_rationale,
             "active_intent": self.model_intent.payload() if self.model_intent else None,
             "last_model_decision": self.last_model_decision.payload() if self.last_model_decision else None,
             "perception": self.last_perception.payload() if self.last_perception else None,

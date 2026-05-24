@@ -75,7 +75,13 @@ def _fish_node(fish: Any) -> dict[str, Any]:
         "generation": fish.generation,
         "parent_ids": list(fish.parent_ids),
         "biology": _biology_signature(genome),
-        "behavior": _behavior_signature(instruction, len(fish.taught_skills), fish.accepted_instruction_patch_ids, fish.rejected_instruction_patch_ids),
+        "behavior": _behavior_signature(
+            instruction,
+            len(fish.taught_skills),
+            fish.accepted_instruction_patch_ids,
+            fish.rejected_instruction_patch_ids,
+            getattr(fish, "last_behavior_rationale", {}) or {},
+        ),
         "capability": {
             "archetype": genome.archetype,
             "metabolism": genome.metabolism,
@@ -163,6 +169,11 @@ def _dead_node(summary: dict[str, Any]) -> dict[str, Any]:
             "taught_skill_count": len(summary.get("taught_skill_hashes", [])),
             "accepted_patch_count": len(summary.get("accepted_instruction_patch_ids", [])),
             "rejected_patch_count": len(summary.get("rejected_instruction_patch_ids", [])),
+            "current_action": (summary.get("behavior_rationale") or {}).get("current_action", ""),
+            "top_candidate": ((summary.get("behavior_rationale") or {}).get("candidate_summary") or [{}])[0].get("action", ""),
+            "context_tags": list((summary.get("behavior_rationale") or {}).get("context_tags", []))[:6],
+            "affordance_tags": list((summary.get("behavior_rationale") or {}).get("affordance_tags", []))[:6],
+            "mismatch_warnings": list((summary.get("behavior_rationale") or {}).get("mismatch_warnings", []))[:4],
         },
         "capability": {
             "archetype": summary.get("archetype", "unknown"),
@@ -206,7 +217,10 @@ def _behavior_signature(
     taught_skill_count: int,
     accepted_patch_ids: Sequence[str],
     rejected_patch_ids: Sequence[str],
+    rationale: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    behavior = rationale or {}
+    top_candidate = (behavior.get("candidate_summary") or [{}])[0]
     return {
         "policy_hash": instruction.policy_hash,
         "policy_hash_short": instruction.policy_hash_short,
@@ -221,6 +235,15 @@ def _behavior_signature(
         "taught_skill_count": taught_skill_count,
         "accepted_patch_count": len(accepted_patch_ids),
         "rejected_patch_count": len(rejected_patch_ids),
+        "current_action": behavior.get("current_action", ""),
+        "action_reason": behavior.get("action_reason", ""),
+        "top_candidate": top_candidate.get("action", behavior.get("current_action", "")),
+        "top_candidate_score": top_candidate.get("score", 0),
+        "context_tags": list(behavior.get("context_tags", []))[:6],
+        "affordance_tags": list(behavior.get("affordance_tags", []))[:6],
+        "policy_influence": list(behavior.get("policy_influence", []))[:4],
+        "skill_influence": list(behavior.get("skill_influence", []))[:4],
+        "mismatch_warnings": list(behavior.get("mismatch_warnings", []))[:4],
     }
 
 

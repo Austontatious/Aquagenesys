@@ -12,7 +12,7 @@
     "archive_every_ticks": 5
   },
   "expected": {
-    "schema": "aquagenesys.state.v11",
+    "schema": "aquagenesys.state.v12",
     "frame_schema": "aquagenesys.frame.v3",
     "max_frame_state_ratio": 0.55,
     "min_population": 1,

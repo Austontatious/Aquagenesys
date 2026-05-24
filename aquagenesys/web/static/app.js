@@ -273,6 +273,7 @@ function updateDashboard(dashboard, telemetry) {
     `${item.count} adults (${Math.round(Number(item.share || 0) * 100)}%)`,
   ]);
   updateMorphologyDashboard(dashboard.morphology || telemetry?.morphology || {});
+  updateBehaviorDashboard(dashboard.behavior || telemetry?.behavior || {});
   const teaching = dashboard.teaching || {};
   fillList(
     "teachingSummary",
@@ -327,6 +328,30 @@ function updateMorphologyDashboard(morphology) {
   fillList("morphologyNotable", morphology.notable || [], (item) => [
     `#${item.fish_id} L${item.lineage_id} ${labelize(item.label)}`,
     `viab ${Number(item.viability_index || 0).toFixed(2)} / drag ${Number(item.drag || 0).toFixed(2)} / ${item.primary_affordances?.join(", ") || "-"}`,
+  ]);
+}
+
+function updateBehaviorDashboard(behavior) {
+  const summary = behavior.summary || behavior || {};
+  const setText = (id, value) => {
+    const node = document.getElementById(id);
+    if (node) node.textContent = value;
+  };
+  const topActions = behavior.top_actions || summary.top_actions || [];
+  const topContexts = behavior.top_context_tags || summary.top_context_tags || [];
+  const topAffordances = behavior.top_affordance_tags || summary.top_affordance_tags || [];
+  const warnings = behavior.top_mismatch_warnings || summary.top_mismatch_warnings || [];
+  setText("behaviorActions", topActions.length);
+  setText("behaviorContexts", topContexts.length);
+  setText("behaviorAffordances", topAffordances.length);
+  setText("behaviorWarnings", summary.mismatch_warning_count ?? warnings.reduce((sum, item) => sum + Number(item.count || 0), 0));
+  fillList("behaviorTopActions", topActions, (item) => [
+    labelize(item.action),
+    `${item.count} attempts`,
+  ]);
+  fillList("behaviorNotable", behavior.notable || [], (item) => [
+    `#${item.fish_id} L${item.lineage_id} ${labelize(item.current_action)}`,
+    `${labelize(item.top_candidate || item.current_action)} score ${Number(item.score || 0).toFixed(2)} / ${(item.affordance_tags || []).map(labelize).join(", ") || "general body"}`,
   ]);
 }
 
@@ -1051,6 +1076,7 @@ function updateInspector() {
   const morphology = morphologyFor(fish, phenotype);
   const fullFish = findStateFish(fish.id) || fish;
   const affordances = fullFish.affordances || fullFish.morphology?.affordances || {};
+  const behavior = behaviorFor(fish);
   document.getElementById("fishPhenotype").textContent = `${phenotype.shape} / ${phenotype.tail} / ${phenotype.pattern}`;
   document.getElementById("fishTraits").textContent = `fin ${Number(phenotype.fin_span).toFixed(2)} camo ${Number(phenotype.camouflage).toFixed(2)}`;
   document.getElementById("fishMorphology").textContent =
@@ -1074,6 +1100,12 @@ function updateInspector() {
   document.getElementById("fishTeaching").textContent =
     `${String(instruction.teaching_style || "-").replaceAll("_", "-")} skills ${instruction.skill_count ?? (fish.taught_skills || []).length ?? 0} acc ${instruction.accepted_patches ?? fish.instruction_lineage?.accepted_patch_ids?.length ?? 0} rej ${instruction.rejected_patches ?? fish.instruction_lineage?.rejected_patch_ids?.length ?? 0}`;
   document.getElementById("fishDecision").textContent = `${fish.decision.source}: ${fish.decision.kind}`;
+  document.getElementById("fishBehavior").textContent =
+    `${labelize(behavior.current_action || fish.decision.kind || "drift")}: ${behavior.action_reason || fish.decision.reason || "no rationale recorded"}`;
+  document.getElementById("fishCandidates").textContent = summarizeCandidates(behavior.candidate_summary || []);
+  document.getElementById("fishContextTags").textContent = summarizeTags([...(behavior.context_tags || []), ...(behavior.affordance_tags || [])]);
+  document.getElementById("fishInfluence").textContent = summarizeTags([...(behavior.policy_influence || []), ...(behavior.skill_influence || [])]);
+  document.getElementById("fishWarnings").textContent = summarizeTags(behavior.mismatch_warnings || []);
   document.getElementById("fishIntent").textContent = fish.active_intent
     ? `${fish.active_intent.kind} ttl ${fish.model_intent_ttl}`
     : fish.model_pending
@@ -1095,6 +1127,23 @@ function findFish(id) {
 function findStateFish(id) {
   if (id === null || !latestState) return null;
   return (latestState.fish || latestState.organisms || []).find((fish) => fish.id === id) || null;
+}
+
+function behaviorFor(fish) {
+  const fullFish = findStateFish(fish.id) || fish;
+  if (fullFish.behavior) return fullFish.behavior;
+  const rows = latestState?.behavior?.organisms || [];
+  return rows.find((row) => row.id === `fish-${fish.id}` || Number(String(row.id || "").replace("fish-", "")) === fish.id) || {};
+}
+
+function summarizeTags(tags) {
+  const compact = [...new Set((tags || []).filter(Boolean).map(labelize))].slice(0, 6);
+  return compact.length ? compact.join(" / ") : "-";
+}
+
+function summarizeCandidates(candidates) {
+  const compact = (candidates || []).slice(0, 3).map((item) => `${labelize(item.action)} ${Number(item.score || 0).toFixed(2)}`);
+  return compact.length ? compact.join(" / ") : "-";
 }
 
 function summarizeAffordances(affordances) {
@@ -1137,9 +1186,12 @@ function lineageContextFor(fish) {
 
 function explainFish(fish) {
   const decision = fish.decision || {};
+  const behavior = behaviorFor(fish);
   const gate = fish.last_reproduction_gate ? ` Repro gate: ${labelize(fish.last_reproduction_gate)}.` : "";
   const intent = fish.active_intent ? ` Carrying model intent ${fish.active_intent.kind}.` : "";
-  return `${labelize(decision.source)} chose ${labelize(decision.kind)} because ${decision.reason || "local reflex/habit policy"}.${gate}${intent}`;
+  const reason = behavior.action_reason || decision.reason || "local reflex/habit policy";
+  const warning = (behavior.mismatch_warnings || [])[0] ? ` Warning: ${(behavior.mismatch_warnings || [])[0]}.` : "";
+  return `${labelize(decision.source)} chose ${labelize(decision.kind)} because ${reason}.${warning}${gate}${intent}`;
 }
 
 function updateCompare() {
@@ -1174,6 +1226,7 @@ function renderCompareDetails(id, fish) {
   const fullFish = findStateFish(fish.id) || fish;
   const affordances = fullFish.affordances || fullFish.morphology?.affordances || {};
   const instruction = fish.instruction || fish.instruction_genome || {};
+  const behavior = behaviorFor(fish);
   const rows = [
     ["ID", `#${fish.id} L${fish.lineage} G${fish.generation}`],
     ["Body", `${fish.genome.archetype} ${phenotype.shape}`],
@@ -1184,6 +1237,7 @@ function renderCompareDetails(id, fish) {
     ["Policy", `${instruction.policy_hash_short || "-"} ${instruction.policy_label || ""}`],
     ["Strategy", `${labelize(instruction.risk_posture)} / ${labelize(instruction.forage_strategy)} / ${labelize(instruction.energy_strategy)}`],
     ["Action", `${fish.decision.source}: ${fish.decision.kind}`],
+    ["Behavior", `${labelize(behavior.current_action || fish.decision.kind)} / ${summarizeCandidates(behavior.candidate_summary || [])}`],
   ];
   node.innerHTML = "";
   for (const [label, value] of rows) {
@@ -1278,7 +1332,7 @@ function updateLineageStory(story) {
   ]);
   fillList("lineageStoryBehavior", current?.behavior_track || [], (item) => [
     `${labelize(item.label)} ${item.node}`,
-    `${labelize(item.policy_label)} / ${item.policy_hash_short || "-"} / skills ${item.taught_skill_count ?? 0}`,
+    `${labelize(item.policy_label)} / ${item.policy_hash_short || "-"} / ${labelize(item.current_action || item.top_candidate || "no action")} / skills ${item.taught_skill_count ?? 0}`,
   ]);
   const attempts = [...(current?.attempts || []), ...(current?.losses || []).map((item) => ({
     tick: "loss",

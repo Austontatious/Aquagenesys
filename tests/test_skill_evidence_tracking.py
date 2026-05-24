@@ -73,7 +73,7 @@ def test_skill_inheritance_is_recorded_and_aggregated() -> None:
     _parent, child = _make_skill_carrying_child(sim)
     state = sim.state()
     evidence = state["telemetry"]["skill_evidence"]
-    assert state["schema"] == "aquagenesys.state.v11"
+    assert state["schema"] == "aquagenesys.state.v12"
     assert evidence["schema"] == "aquagenesys.skill_evidence.v1"
     assert any(event["event_type"] == "skill_inherited" and event["child_id"] == child.fish_id for event in evidence["recent_events"])
     aggregate = evidence["aggregates"][0]
@@ -102,7 +102,8 @@ def test_skill_use_outcome_and_descendant_reproduction_are_tracked() -> None:
     use_event = next(event for event in evidence["recent_events"] if event["event_type"] == "skill_outcome_observed")
     assert use_event["fish_id"] == child.fish_id
     assert use_event["context"] == "hunger_or_food_opportunity"
-    assert use_event["action"] == "forage"
+    assert use_event["action"] in {"forage", "filter_feed", "graze", "scavenge", "anchor_feed", "hunt", "strike"}
+    assert use_event["context_tags"] or use_event["affordance_tags"]
     assert use_event["effect_label"] == "helped_possible"
     aggregate = next(row for row in evidence["aggregates"] if row["skill_hash"] == child.taught_skills[0].skill_hash)
     assert aggregate["users_count"] >= 1
@@ -149,7 +150,7 @@ def test_lineage_story_reports_skill_evidence_without_causal_overclaim() -> None
     story = sim.state()["lineage_story"]
     lineage_story = next(item for item in story["lineage_stories"] if item["lineage_id"] == child.lineage_id)
     answer_text = " ".join(lineage_story["answers"].values())
-    assert story["schema"] == "aquagenesys.lineage_story.v3"
+    assert story["schema"] == "aquagenesys.lineage_story.v4"
     assert lineage_story["skill_evidence"]["aggregates"]
     assert "helped possible" in answer_text
     assert "does not prove causality" in answer_text

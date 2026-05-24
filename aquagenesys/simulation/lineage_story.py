@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from typing import Any, Iterable
 
 
-SCHEMA = "aquagenesys.lineage_story.v3"
+SCHEMA = "aquagenesys.lineage_story.v4"
 THESIS = "Instruction changes intent. Biology controls capability. Ecology decides what persists."
 QUESTIONS = (
     "Who survived?",
@@ -359,6 +359,15 @@ def _persisted(
         parts.append(
             f"affordances reach:{affordances.get('reach', '-')} filter:{affordances.get('filter_rate', '-')} bite:{affordances.get('bite_force', '-')} cost oxygen:{affordances.get('oxygen_cost', '-')}"
         )
+    if behavior.get("current_action"):
+        context = ", ".join(str(tag).replace("_", " ") for tag in behavior.get("context_tags", [])[:3]) or "local context"
+        affordance_tags = ", ".join(str(tag).replace("_", " ") for tag in behavior.get("affordance_tags", [])[:3]) or "general affordances"
+        parts.append(
+            f"recent action={str(behavior.get('current_action')).replace('_', ' ')} associated with {affordance_tags} in {context}"
+        )
+    if behavior.get("mismatch_warnings"):
+        warning = str(behavior.get("mismatch_warnings", [""])[0]).replace("_", " ")
+        parts.append(f"behavior mismatch warning={warning}")
     if recent_hatches or recent_clutches:
         parts.append(f"recent hatches/clutches={recent_hatches}/{recent_clutches}")
     if reproduction_log:
@@ -411,6 +420,11 @@ def _behavior_track(
                 "forage_strategy": behavior.get("forage_strategy", "unknown"),
                 "energy_strategy": behavior.get("energy_strategy", "unknown"),
                 "taught_skill_count": behavior.get("taught_skill_count", 0),
+                "current_action": behavior.get("current_action", ""),
+                "top_candidate": behavior.get("top_candidate", ""),
+                "context_tags": list(behavior.get("context_tags", []))[:5],
+                "affordance_tags": list(behavior.get("affordance_tags", []))[:5],
+                "mismatch_warnings": list(behavior.get("mismatch_warnings", []))[:3],
             }
         )
     inherited = [
@@ -423,6 +437,11 @@ def _behavior_track(
             "forage_strategy": str(row.get("delivery", "unknown")),
             "energy_strategy": "bounded",
             "taught_skill_count": row.get("skill_count", 0),
+            "current_action": "",
+            "top_candidate": "",
+            "context_tags": [],
+            "affordance_tags": [],
+            "mismatch_warnings": [],
         }
         for row in reversed(instruction_log)
         if row.get("event_type") == "offspring_instruction_inheritance"
@@ -474,6 +493,10 @@ def _story_evidence(
         if latest.get("biology", {}).get("morphology_hash"):
             evidence.append(
                 f"morphology={latest.get('capability', {}).get('morphology_label', 'unknown')} {str(latest.get('biology', {}).get('morphology_hash'))[-10:]}"
+            )
+        if latest.get("behavior", {}).get("current_action"):
+            evidence.append(
+                f"behavior={latest.get('behavior', {}).get('current_action')} tags:{','.join(latest.get('behavior', {}).get('affordance_tags', [])[:3])}"
             )
     if events:
         evidence.append(f"recent_events={', '.join(str(event.get('kind')) for event in events[-3:])}")

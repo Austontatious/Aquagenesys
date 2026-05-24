@@ -72,7 +72,7 @@ class Runtime:
 
 def create_app(config: SimulationConfig | None = None) -> FastAPI:
     runtime = Runtime(config or simulation_config_from_runtime(AquagenesysRuntimeConfig.from_env()))
-    app = FastAPI(title="Aquagenesys v0.4.0 Modular Morphology Dirty Puddle", version="0.4.0")
+    app = FastAPI(title="Aquagenesys v0.4.1 Affordance-Aware Dirty Puddle", version="0.4.1")
     app.state.runtime = runtime
     app.mount("/static", StaticFiles(directory=STATIC_ROOT), name="static")
 
@@ -130,7 +130,7 @@ app = create_app()
 
 def main(argv: list[str] | None = None) -> None:
     runtime_config = AquagenesysRuntimeConfig.from_env()
-    parser = argparse.ArgumentParser(description="Run the Aquagenesys v0.4.0 local web viewer")
+    parser = argparse.ArgumentParser(description="Run the Aquagenesys v0.4.1 local web viewer")
     parser.add_argument("--host", default=runtime_config.host)
     parser.add_argument("--port", type=int, default=runtime_config.port)
     parser.add_argument("--seed", type=int, default=runtime_config.seed)

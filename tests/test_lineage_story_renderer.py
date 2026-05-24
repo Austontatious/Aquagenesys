@@ -43,8 +43,8 @@ def test_state_exposes_lineage_story_without_frame_bloat() -> None:
     state = sim.state()
     frame = sim.frame_state()
     story = state["lineage_story"]
-    assert state["schema"] == "aquagenesys.state.v11"
-    assert story["schema"] == "aquagenesys.lineage_story.v3"
+    assert state["schema"] == "aquagenesys.state.v12"
+    assert story["schema"] == "aquagenesys.lineage_story.v4"
     assert story["bounded"]["model_dependency"] is False
     assert story["summary"]["questions_answered"] == [
         "Who survived?",

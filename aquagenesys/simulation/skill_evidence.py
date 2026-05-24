@@ -37,6 +37,8 @@ class SkillUseEvidence:
     detail: str = ""
     survival_ticks_after_use: int = 0
     reproduction_after_use: bool = False
+    context_tags: tuple[str, ...] = ()
+    affordance_tags: tuple[str, ...] = ()
 
     def payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -63,6 +65,8 @@ class SkillUseEvidence:
             "detail": self.detail,
             "survival_ticks_after_use": self.survival_ticks_after_use,
             "reproduction_after_use": self.reproduction_after_use,
+            "context_tags": list(self.context_tags[:10]),
+            "affordance_tags": list(self.affordance_tags[:10]),
         }
         return payload
 
@@ -310,37 +314,72 @@ def _skill_action_context(skill: Any, fish: Any, perception: Any, action: Any) -
     action_kind = str(getattr(action, "kind", "unknown") or "unknown")
     action_reason = str(getattr(action, "reason", "")).lower()
     action_source = str(getattr(action, "source", "")).lower()
+    behavior = getattr(fish, "last_behavior_rationale", {}) or {}
+    context_tags = tuple(str(tag) for tag in behavior.get("context_tags", [])[:10])
+    affordance_tags = tuple(str(tag) for tag in behavior.get("affordance_tags", [])[:10])
+    skill_label = skill_name(skill)
+    behavior_expresses_skill = skill_label in set(str(item) for item in behavior.get("skill_influence", []))
     if action_source == "reflex" and "instruction" not in action_reason:
         return None
-    if not _policy_expresses_skill(skill, fish) and "instruction" not in action_reason:
+    if not _policy_expresses_skill(skill, fish) and "instruction" not in action_reason and not behavior_expresses_skill:
         return None
 
     sensory_range = float(getattr(getattr(fish, "genome", None), "sensory_range", 8.0) or 8.0)
     if skill_type == "forage":
         food_near = float(getattr(perception, "nearest_food", (0.0, 0.0, 999.0))[2]) <= sensory_range * 1.7
         context = bool(getattr(fish, "hunger", 0.0) > 0.42 or getattr(perception, "resource_score", 0.0) > 0.54 or food_near)
-        if context and action_kind in {"forage", "eat", "hunt"}:
-            return {"context": "hunger_or_food_opportunity", "action_match": "forage_path"}
+        if context and action_kind in {"forage", "eat", "hunt", "strike", "filter_feed", "graze", "scavenge", "anchor_feed"}:
+            return {
+                "context": "hunger_or_food_opportunity",
+                "action_match": "forage_path",
+                "context_tags": context_tags,
+                "affordance_tags": affordance_tags,
+            }
     elif skill_type == "threat":
         threat_near = float(getattr(perception, "nearest_threat", (0.0, 0.0, 999.0))[2]) <= sensory_range * 1.5
         context = bool(getattr(fish, "fear", 0.0) > 0.34 or getattr(fish, "stress", 0.0) > 0.34 or getattr(perception, "stress", 0.0) > 0.34 or threat_near)
-        if context and action_kind in {"shelter", "flee", "escape"}:
-            return {"context": "fear_stress_or_threat", "action_match": "avoidance_path"}
+        if context and action_kind in {"shelter", "flee", "escape", "chemical_defense"}:
+            return {
+                "context": "fear_stress_or_threat",
+                "action_match": "avoidance_path",
+                "context_tags": context_tags,
+                "affordance_tags": affordance_tags,
+            }
     elif skill_type == "social":
         if getattr(perception, "neighbor_count", 0) > 0 and action_kind == "school":
-            return {"context": "nearby_organisms", "action_match": "social_path"}
+            return {
+                "context": "nearby_organisms",
+                "action_match": "social_path",
+                "context_tags": context_tags,
+                "affordance_tags": affordance_tags,
+            }
     elif skill_type == "explore":
         context = bool(getattr(perception, "resource_score", 0.0) < 0.68 and getattr(fish, "stress", 0.0) < 0.58)
         if context and action_kind == "explore":
-            return {"context": "low_pressure_search", "action_match": "exploration_path"}
+            return {
+                "context": "low_pressure_search",
+                "action_match": "exploration_path",
+                "context_tags": context_tags,
+                "affordance_tags": affordance_tags,
+            }
     elif skill_type == "reproduce":
         context = bool(getattr(fish, "reproductive_drive", 0.0) > 0.50 or getattr(perception, "reproduction_score", 0.0) > 0.50)
         if context and action_kind == "court":
-            return {"context": "fertile_or_reproductive_water", "action_match": "reproduction_path"}
+            return {
+                "context": "fertile_or_reproductive_water",
+                "action_match": "reproduction_path",
+                "context_tags": context_tags,
+                "affordance_tags": affordance_tags,
+            }
     elif skill_type == "energy":
         context = bool(getattr(fish, "energy", 100.0) < 58.0 or getattr(fish, "stress", 0.0) > 0.28)
-        if context and action_kind in {"rest", "shelter"}:
-            return {"context": "energy_or_stress_management", "action_match": "energy_path"}
+        if context and action_kind in {"rest", "shelter", "anchor_feed", "filter_feed"}:
+            return {
+                "context": "energy_or_stress_management",
+                "action_match": "energy_path",
+                "context_tags": context_tags,
+                "affordance_tags": affordance_tags,
+            }
     return None
 
 

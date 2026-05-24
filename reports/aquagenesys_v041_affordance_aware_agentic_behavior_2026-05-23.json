@@ -1,0 +1,270 @@
+{
+  "version": "0.4.1",
+  "title": "Aquagenesys v0.4.1 Affordance-Aware Agentic Behavior",
+  "schemas": {
+    "state": "aquagenesys.state.v12",
+    "frame": "aquagenesys.frame.v3",
+    "behavior": "aquagenesys.behavior.v1",
+    "behavior_dashboard": "aquagenesys.behavior_dashboard.v1",
+    "morphology": "aquagenesys.morphology.v1",
+    "lineage_story": "aquagenesys.lineage_story.v4"
+  },
+  "architecture": {
+    "new_module": "aquagenesys/agents/behavior.py",
+    "core_objects": [
+      "ActionCandidate",
+      "BehaviorDecision"
+    ],
+    "spine": [
+      "body affordance",
+      "candidate actions",
+      "cost/risk/upside scoring",
+      "inherited prior influence",
+      "bounded action choice",
+      "ecology evaluates",
+      "evidence recorded for future governance"
+    ],
+    "non_goals_enforced": [
+      "no shell access",
+      "no filesystem access",
+      "no network access",
+      "no code editing",
+      "no arbitrary tools",
+      "no direct fitness scoring",
+      "no model-controlled simulation tick"
+    ]
+  },
+  "actions": [
+    "filter_feed",
+    "graze",
+    "scavenge",
+    "anchor_feed",
+    "forage",
+    "strike",
+    "hunt",
+    "chemical_defense",
+    "flee",
+    "shelter",
+    "rest",
+    "court",
+    "school",
+    "explore"
+  ],
+  "context_tags": [
+    "scarcity",
+    "bloom",
+    "crowded",
+    "low_oxygen",
+    "high_toxin",
+    "predator_near",
+    "prey_near",
+    "mate_near",
+    "low_energy",
+    "high_stress",
+    "bottleneck",
+    "recovery",
+    "near_detritus",
+    "near_shelter",
+    "local_resource_patch",
+    "open_water"
+  ],
+  "affordance_tags": [
+    "high_filter",
+    "high_suction",
+    "high_bite",
+    "high_reach",
+    "high_armor",
+    "high_toxin",
+    "high_sensory",
+    "high_drag",
+    "high_oxygen_cost",
+    "soft_body",
+    "bulk_body",
+    "small_body"
+  ],
+  "example_candidate_rankings": [
+    {
+      "label": "filter-bloom",
+      "selected": "filter_feed",
+      "affordance_tags": [
+        "high_filter",
+        "high_suction"
+      ],
+      "context_tags": [
+        "bloom",
+        "low_energy",
+        "near_shelter",
+        "local_resource_patch"
+      ],
+      "top": [
+        {
+          "action": "filter_feed",
+          "score": 0.882,
+          "cost": 0.125,
+          "risk": 0.0,
+          "upside": 0.86
+        },
+        {
+          "action": "anchor_feed",
+          "score": 0.624,
+          "cost": 0.066,
+          "risk": 0.0,
+          "upside": 0.555
+        },
+        {
+          "action": "forage",
+          "score": 0.485,
+          "cost": 0.141,
+          "risk": 0.0,
+          "upside": 0.545
+        }
+      ]
+    },
+    {
+      "label": "bite-prey",
+      "selected": "strike",
+      "affordance_tags": [
+        "high_bite",
+        "high_sensory"
+      ],
+      "context_tags": [
+        "prey_near",
+        "low_energy",
+        "near_shelter"
+      ],
+      "top": [
+        {
+          "action": "strike",
+          "score": 0.919,
+          "cost": 0.156,
+          "risk": 0.083,
+          "upside": 0.902
+        },
+        {
+          "action": "hunt",
+          "score": 0.613,
+          "cost": 0.272,
+          "risk": 0.094,
+          "upside": 0.696
+        }
+      ]
+    },
+    {
+      "label": "appendage-detritus",
+      "selected": "scavenge",
+      "affordance_tags": [
+        "high_reach",
+        "high_drag",
+        "high_oxygen_cost"
+      ],
+      "context_tags": [
+        "low_energy",
+        "near_detritus",
+        "near_shelter",
+        "local_resource_patch"
+      ],
+      "top": [
+        {
+          "action": "scavenge",
+          "score": 0.738,
+          "cost": 0.168,
+          "risk": 0.0,
+          "upside": 0.789
+        },
+        {
+          "action": "anchor_feed",
+          "score": 0.553,
+          "cost": 0.123,
+          "risk": 0.0,
+          "upside": 0.499
+        }
+      ]
+    }
+  ],
+  "seeded_behavior_distribution": {
+    "seed": 741,
+    "ticks": 16,
+    "initial_population": 12,
+    "decision_sources": {
+      "affordance": 28,
+      "reflex": 8
+    },
+    "top_actions": [
+      {
+        "action": "shelter",
+        "count": 22
+      },
+      {
+        "action": "flee",
+        "count": 7
+      },
+      {
+        "action": "court",
+        "count": 4
+      },
+      {
+        "action": "filter_feed",
+        "count": 2
+      },
+      {
+        "action": "school",
+        "count": 1
+      }
+    ],
+    "top_context_tags": [
+      "crowded",
+      "near_shelter",
+      "predator_near",
+      "mate_near",
+      "low_oxygen"
+    ],
+    "top_affordance_tags": [
+      "bulk_body",
+      "high_sensory",
+      "high_bite",
+      "high_drag",
+      "high_oxygen_cost"
+    ],
+    "mismatch_warning_count": 7
+  },
+  "test_metrics": {
+    "targeted_behavior_tests": {
+      "command": "python3 -m pytest -q tests/test_affordance_aware_behavior.py",
+      "passed": 7
+    },
+    "full_tests": {
+      "command": "python3 -m pytest -q tests",
+      "passed": 71
+    },
+    "eval_runner_check": "pass",
+    "eval_runner": "pass",
+    "recovery_assays": {
+      "command": "python3 evals/recovery_assays.py --json",
+      "recovery_rate": 1.0,
+      "no_god_mode_reseed": true,
+      "status": "pass"
+    },
+    "lint": "pass",
+    "codex_standards": {
+      "command": "python3 -m pytest -q tests/test_codex_standards.py --noconftest",
+      "passed": 9
+    },
+    "node_check": "pass",
+    "browser_smoke": {
+      "url": "http://127.0.0.1:8775/",
+      "title": "Aquagenesys v0.4.1",
+      "canvas_nonblank": true,
+      "behavior_panel_visible": true,
+      "selected_fish_behavior_visible": true,
+      "compare_mode_visible": true,
+      "console_errors": 0,
+      "mobile_horizontal_overflow": false
+    }
+  },
+  "deferred": [
+    "v0.4.2 evidence-governed skill inheritance",
+    "v0.4.3 lineage fitness denominators",
+    "v0.4.4 niche/diversity and anti-convergence tracking",
+    "v0.4.5 optional model-generated behavior priors"
+  ]
+}
