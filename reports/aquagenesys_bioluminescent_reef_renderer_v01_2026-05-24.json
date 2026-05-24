@@ -1,0 +1,123 @@
+{
+  "schema": "aquagenesys.visual_report.v1",
+  "date": "2026-05-24",
+  "feature": "bioluminescent_reef_renderer_v0.1",
+  "scope": {
+    "simulation_mechanics_changed": false,
+    "api_frame_changed": false,
+    "renderer_default_changed": false,
+    "flag": "renderer=reef-v0"
+  },
+  "files": [
+    "aquagenesys/web/static/renderer_canvas.js",
+    "aquagenesys/web/static/app.js",
+    "aquagenesys/web/static/index.html",
+    "aquagenesys/web/static/assets/reef-bg.webp",
+    "aquagenesys/web/static/assets/README.md",
+    "tests/test_reef_renderer_static.py"
+  ],
+  "renderer": {
+    "interface": [
+      "resize",
+      "updateFrame",
+      "updateEnvironment",
+      "render",
+      "hitTest",
+      "getRenderedFish",
+      "setSelection",
+      "getPerfStats",
+      "destroy"
+    ],
+    "quality_tiers": ["high", "medium", "low", "minimum"],
+    "cache": {
+      "enabled_by_default": true,
+      "offscreen_canvas_when_available": true,
+      "escape_hatch": "reefCache=off"
+    },
+    "adaptive_quality": {
+      "enabled_by_default": true,
+      "escape_hatch": "reefAdaptive=off",
+      "forced_quality_param": "reefQuality"
+    },
+    "background": {
+      "asset": "/static/assets/reef-bg.webp",
+      "asset_size_bytes": 8772,
+      "fallback_param": "reefBg=missing"
+    }
+  },
+  "browser_smoke": {
+    "runtime_url": "http://127.0.0.1:8776/",
+    "seed": 4101,
+    "pid": 3479112,
+    "default_renderer": {
+      "reef_renderer_present": false,
+      "canvas_nonblank": true,
+      "click_select": true,
+      "horizontal_overflow": 0,
+      "console_errors": 0
+    },
+    "reef_desktop": {
+      "canvas_nonblank": true,
+      "background_ready": true,
+      "visible_organisms": 38,
+      "depth_tiers": {
+        "background": 11,
+        "midwater": 23,
+        "foreground": 4
+      },
+      "click_select": true,
+      "ctrl_click_compare": true,
+      "quality": "high",
+      "average_render_ms": 2.12,
+      "p95_render_ms": 2.7,
+      "headless_raf_fps": 15.0,
+      "cache_hits": 3449,
+      "cache_misses": 39,
+      "console_errors": 0
+    },
+    "forced_low_quality": {
+      "canvas_nonblank": true,
+      "quality": "low",
+      "visible_organisms": 38,
+      "average_render_ms": 0.83,
+      "p95_render_ms": 1.8,
+      "horizontal_overflow": 0
+    },
+    "missing_background": {
+      "canvas_nonblank": true,
+      "background_failed": true,
+      "horizontal_overflow": 0,
+      "console_errors": 0
+    },
+    "mobile": {
+      "viewport": "390x844",
+      "canvas_nonblank": true,
+      "click_select": true,
+      "horizontal_overflow": 0,
+      "quality": "high",
+      "average_render_ms": 1.45,
+      "p95_render_ms": 1.7,
+      "headless_raf_fps": 53.3
+    }
+  },
+  "validation": {
+    "pytest_tests": "74 passed",
+    "eval_runner_check": "passed",
+    "eval_runner": "passed",
+    "make_lint": "passed",
+    "codex_standards": "9 passed",
+    "node_check_app_js": "passed",
+    "node_check_renderer_canvas_js": "passed",
+    "recovery_assays": {
+      "passed": true,
+      "recovery_rate": 1.0,
+      "no_god_mode_reseed": true
+    }
+  },
+  "limitations": [
+    "Canvas 2D prototype only; no PixiJS/WebGL migration.",
+    "Procedural placeholder reef background, not final art.",
+    "Depth is deterministic client-side presentation only.",
+    "Selected-organism portrait prototype deferred."
+  ]
+}

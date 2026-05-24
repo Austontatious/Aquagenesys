@@ -12,6 +12,22 @@ const FRAME_POLL_MS = 320;
 const STATE_POLL_MS = 2600;
 const INTERPOLATION_DELAY_MS = 280;
 const TAU = Math.PI * 2;
+const queryParams = new URLSearchParams(window.location.search);
+const rendererMode = queryParams.get("renderer") || "";
+const reefRendererEnabled = rendererMode === "reef-v0" && Boolean(window.AquagenesysReefRenderer);
+const reefRenderer = reefRendererEnabled
+  ? window.AquagenesysReefRenderer.init(canvas, {
+      backgroundUrl:
+        queryParams.get("reefBg") === "missing"
+          ? ""
+          : "/static/assets/reef-bg.webp",
+      forcedQuality: queryParams.get("reefQuality") || queryParams.get("quality") || "",
+      cacheEnabled: queryParams.get("reefCache") !== "off",
+      adaptiveQuality: queryParams.get("reefAdaptive") !== "off",
+      debug: queryParams.get("reefDebug") === "1",
+    })
+  : null;
+if (reefRenderer) window.aquagenesysReefRenderer = reefRenderer;
 
 let latestState = null;
 let latestEnvironment = null;
@@ -34,6 +50,10 @@ const historySamples = {
 
 function resizeCanvas() {
   const rect = canvas.getBoundingClientRect();
+  if (reefRenderer) {
+    reefRenderer.resize(rect.width, rect.height, window.devicePixelRatio || 1);
+    return;
+  }
   const ratio = window.devicePixelRatio || 1;
   canvas.width = Math.max(720, Math.floor(rect.width * ratio));
   canvas.height = Math.max(480, Math.floor(rect.height * ratio));
@@ -159,6 +179,7 @@ function applyFrame(frame) {
   if (currentFrame && frame.tick < currentFrame.tick) return;
   previousFrame = currentFrame;
   currentFrame = { ...frame, receivedAt: performance.now() };
+  if (reefRenderer) reefRenderer.updateFrame(currentFrame, { environment: latestEnvironment || currentFrame.environment });
   updateTelemetry(frame.telemetry);
 }
 
@@ -468,6 +489,15 @@ function rebuildField(env) {
 
 function render() {
   const rect = canvas.getBoundingClientRect();
+  if (reefRenderer) {
+    reefRenderer.updateEnvironment(latestEnvironment || currentFrame?.environment);
+    reefRenderer.setSelection({ selectedId: selectedFishId, hoveredId: hoverFishId, compareId: compareFishId });
+    reefRenderer.render(performance.now());
+    renderedFish = reefRenderer.getRenderedFish();
+    updateInspector();
+    requestAnimationFrame(render);
+    return;
+  }
   ctx.clearRect(0, 0, rect.width, rect.height);
   const frame = currentFrame;
   const env = latestEnvironment || frame?.environment;
@@ -1043,6 +1073,7 @@ function unwrapPhase(from, to, alpha) {
 }
 
 function hitTestFish(x, y) {
+  if (reefRenderer) return reefRenderer.hitTest(x, y);
   let best = null;
   let bestDistance = Infinity;
   for (const item of renderedFish) {
