@@ -1,0 +1,111 @@
+{
+  "schema": "aquagenesys.visual_report.v1",
+  "date": "2026-05-26",
+  "task": "bioluminescent_reef_renderer_v01_polish",
+  "starting_head": "70ead2b18d0f35ffc97e7f56460c80cfcbb96e5c",
+  "runtime": {
+    "url": "http://127.0.0.1:8776/",
+    "pid": 579998,
+    "seed": 4101
+  },
+  "renderer": {
+    "default": "reef-v0",
+    "explicit_reef": "/?renderer=reef-v0",
+    "classic_fallback": "/?renderer=classic",
+    "legacy_fallback": "/?renderer=legacy",
+    "forced_low_quality": "/?reefQuality=low",
+    "missing_background_fallback": "/?reefBg=missing",
+    "frame_schema": "aquagenesys.frame.v3",
+    "state_schema": "aquagenesys.state.v12"
+  },
+  "visual_changes": [
+    "Regenerated procedural reef-bg.webp as a richer dark navy, cyan, violet reef background.",
+    "Added cheap canvas foreground reef and anemone accents for idle and asset-fallback states.",
+    "Reduced field veil speckles and prototype grid feeling.",
+    "Improved organism silhouettes, fins, eyes, mouth cues, armor marks, appendage glow, and selected outlines.",
+    "Tuned client-side depth and LOD so foreground organisms are sharper and far organisms are dimmer.",
+    "Fixed mobile canvas backing size to remove the transparent right-side band.",
+    "Made reef-v0 the default renderer while preserving classic and legacy query fallbacks."
+  ],
+  "screenshots": {
+    "before_desktop": "reports/visual/reef_renderer_v0_polish_2026-05-26/before/desktop_reef_v0_before.png",
+    "before_selected": "reports/visual/reef_renderer_v0_polish_2026-05-26/before/selected_reef_v0_before.png",
+    "before_mobile": "reports/visual/reef_renderer_v0_polish_2026-05-26/before/mobile_reef_v0_before.png",
+    "before_classic": "reports/visual/reef_renderer_v0_polish_2026-05-26/before/classic_before.png",
+    "after_desktop": "reports/visual/reef_renderer_v0_polish_2026-05-26/after/desktop.png",
+    "after_selected": "reports/visual/reef_renderer_v0_polish_2026-05-26/after/selected.png",
+    "after_mobile": "reports/visual/reef_renderer_v0_polish_2026-05-26/after/mobile.png",
+    "after_idle": "reports/visual/reef_renderer_v0_polish_2026-05-26/after/idle.png",
+    "after_fallback": "reports/visual/reef_renderer_v0_polish_2026-05-26/after/fallback.png"
+  },
+  "visual_review": {
+    "dark_bioluminescent_reef_read": true,
+    "materially_better_than_reef_v0_prototype": true,
+    "materially_better_than_classic_for_target_mood": true,
+    "idle_state_intentional": true,
+    "organisms_readable": true,
+    "foreground_closer_and_sharper": true,
+    "far_organisms_simpler_and_dimmer": true,
+    "glow_tasteful": true,
+    "mobile_no_horizontal_overflow": true,
+    "selected_ui_coherent": true,
+    "notes": "Creature art remains deliberately simple Canvas primitive fauna, but the tank no longer reads as a placeholder/debug renderer."
+  },
+  "performance": {
+    "desktop_default": {
+      "visible_organisms": 38,
+      "quality": "high",
+      "average_render_ms": 2.44,
+      "p95_render_ms": 2.6,
+      "cache_hits": 22705,
+      "cache_misses": 49,
+      "console_errors": 0,
+      "failed_requests": 0,
+      "horizontal_overflow_px": 0
+    },
+    "mobile_390x844": {
+      "visible_organisms": 38,
+      "quality": "high",
+      "average_render_ms": 2.15,
+      "p95_render_ms": 2.3,
+      "canvas_backing_size": "390x523",
+      "horizontal_overflow_px": 0
+    },
+    "forced_low_quality": {
+      "visible_organisms": 38,
+      "quality": "low",
+      "average_render_ms": 1.57,
+      "p95_render_ms": 1.8,
+      "horizontal_overflow_px": 0
+    },
+    "missing_background": {
+      "nonblank": true,
+      "background_failed": true,
+      "console_errors": 0
+    },
+    "idle_loading": {
+      "frame_known": false,
+      "visible_organisms": 0,
+      "background_ready": true,
+      "nonblank": true,
+      "console_errors": 0
+    }
+  },
+  "validation": {
+    "python3 -m pytest -q tests": "74 passed",
+    "python3 evals/runner.py --check": "passed",
+    "python3 evals/runner.py": "passed",
+    "make lint": "passed",
+    "python3 -m pytest -q tests/test_codex_standards.py --noconftest": "9 passed",
+    "node --check aquagenesys/web/static/app.js": "passed",
+    "node --check aquagenesys/web/static/renderer_canvas.js": "passed",
+    "python3 evals/recovery_assays.py --json": "passed; recovery_rate=1.0; no_god_mode_reseed=true"
+  },
+  "known_limitations": [
+    "Creature art remains Canvas primitive art rather than final concept-art-level fauna.",
+    "The reef background is procedural placeholder art, though substantially more polished.",
+    "Reef depth remains visual-only and client-side.",
+    "The dashboard/sidebar shell was intentionally not redesigned toward the concept art in this pass."
+  ],
+  "recommended_next_step": "Add a selected-organism portrait renderer using the same morphology descriptor so the sidebar can show a larger, prettier organism view without affecting tank FPS."
+}

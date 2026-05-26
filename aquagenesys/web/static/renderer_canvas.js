@@ -4,10 +4,10 @@
   const TAU = Math.PI * 2;
   const QUALITY = ["minimum", "low", "medium", "high"];
   const QUALITY_SETTINGS = {
-    high: { dprCap: 1.8, particles: 54, appendageScale: 1.0, backgroundAlpha: 1.0, simpleDepth: 0.22, frameBudget: 22 },
-    medium: { dprCap: 1.5, particles: 32, appendageScale: 0.72, backgroundAlpha: 0.96, simpleDepth: 0.34, frameBudget: 26 },
-    low: { dprCap: 1.25, particles: 14, appendageScale: 0.42, backgroundAlpha: 0.90, simpleDepth: 0.52, frameBudget: 31 },
-    minimum: { dprCap: 1.0, particles: 0, appendageScale: 0.0, backgroundAlpha: 0.82, simpleDepth: 0.76, frameBudget: 38 },
+    high: { dprCap: 1.8, particles: 44, appendageScale: 1.0, backgroundAlpha: 1.0, simpleDepth: 0.24, shimmer: 1.0, frameBudget: 22 },
+    medium: { dprCap: 1.5, particles: 28, appendageScale: 0.74, backgroundAlpha: 0.96, simpleDepth: 0.38, shimmer: 0.68, frameBudget: 26 },
+    low: { dprCap: 1.25, particles: 16, appendageScale: 0.42, backgroundAlpha: 0.90, simpleDepth: 0.62, shimmer: 0.28, frameBudget: 31 },
+    minimum: { dprCap: 1.0, particles: 0, appendageScale: 0.0, backgroundAlpha: 0.84, simpleDepth: 0.86, shimmer: 0.0, frameBudget: 38 },
   };
 
   function init(canvas, options = {}) {
@@ -70,8 +70,8 @@
       this.width = Math.max(1, width);
       this.height = Math.max(1, height);
       this.dpr = Math.min(devicePixelRatio || 1, this.dprCap());
-      this.canvas.width = Math.max(720, Math.floor(this.width * this.dpr));
-      this.canvas.height = Math.max(480, Math.floor(this.height * this.dpr));
+      this.canvas.width = Math.max(1, Math.floor(this.width * this.dpr));
+      this.canvas.height = Math.max(1, Math.floor(this.height * this.dpr));
       this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       return { width: this.width, height: this.height, dpr: this.dpr };
     }
@@ -112,7 +112,8 @@
       const env = this.environment || frame?.environment;
       ctx.clearRect(0, 0, this.width, this.height);
       if (!frame || !env) {
-        this.drawFallbackBackground(now);
+        this.drawBackground({ fields: null }, now);
+        this.drawAmbient(null, now);
         this.finishPerf(started, now);
         return;
       }
@@ -179,14 +180,16 @@
       } else {
         this.drawFallbackBackground(now);
       }
-      const pulse = this.quality === "minimum" ? 0 : 0.025 + Math.sin(now * 0.00035) * 0.012;
+      const pulse = settings.shimmer ? 0.018 + Math.sin(now * 0.00028) * 0.008 * settings.shimmer : 0;
+      if (settings.shimmer) drawLightShafts(ctx, this.width, this.height, now, settings.shimmer);
       const gradient = ctx.createRadialGradient(this.width * 0.52, this.height * 0.38, 20, this.width * 0.50, this.height * 0.50, Math.max(this.width, this.height) * 0.72);
-      gradient.addColorStop(0, `rgba(75, 230, 210, ${0.045 + pulse})`);
-      gradient.addColorStop(0.48, "rgba(30, 42, 88, 0.10)");
-      gradient.addColorStop(1, "rgba(0, 3, 12, 0.52)");
+      gradient.addColorStop(0, `rgba(82, 232, 220, ${0.034 + pulse})`);
+      gradient.addColorStop(0.42, "rgba(52, 44, 112, 0.075)");
+      gradient.addColorStop(1, "rgba(0, 2, 10, 0.48)");
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, this.width, this.height);
       if (env.fields && this.quality !== "minimum") this.drawFieldVeil(env);
+      if (this.quality !== "minimum") drawReefForeground(ctx, this.width, this.height, now, this.quality);
     }
 
     drawFallbackBackground(now) {
@@ -197,25 +200,9 @@
       gradient.addColorStop(1, "#02050b");
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, this.width, this.height);
-      ctx.save();
-      ctx.globalAlpha = this.quality === "minimum" ? 0.10 : 0.18;
-      ctx.strokeStyle = "rgba(70, 180, 180, 0.22)";
-      ctx.lineWidth = 1;
-      const spacing = this.quality === "low" || this.quality === "minimum" ? 86 : 58;
-      const drift = (now * 0.006) % spacing;
-      for (let x = -spacing; x < this.width + spacing; x += spacing) {
-        ctx.beginPath();
-        ctx.moveTo(x + drift, 0);
-        ctx.lineTo(x - drift * 0.25, this.height);
-        ctx.stroke();
-      }
-      for (let y = 0; y < this.height; y += spacing) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(this.width, y + Math.sin(y * 0.03) * 8);
-        ctx.stroke();
-      }
-      ctx.restore();
+      const shimmer = QUALITY_SETTINGS[this.quality].shimmer;
+      if (shimmer) drawLightShafts(ctx, this.width, this.height, now, shimmer * 0.7);
+      drawFallbackReef(ctx, this.width, this.height, now, this.quality);
     }
 
     drawFieldVeil(env) {
@@ -225,15 +212,15 @@
       const viewHeight = env.view_height || fields.plankton.length || 1;
       const cellW = this.width / viewWidth;
       const cellH = this.height / viewHeight;
-      const step = this.quality === "high" ? 3 : 5;
+      const step = this.quality === "high" ? 4 : 6;
       this.ctx.save();
       for (let y = 0; y < viewHeight; y += step) {
         for (let x = 0; x < viewWidth; x += step) {
           const plankton = fields.plankton[y]?.[x] || 0;
           const toxins = fields.toxins[y]?.[x] || 0;
           const oxygen = fields.oxygen?.[y]?.[x] || 0;
-          const alpha = Math.max(0, plankton * 0.030 + oxygen * 0.018 - toxins * 0.018);
-          if (alpha <= 0.012) continue;
+          const alpha = Math.min(0.026, Math.max(0, plankton * 0.012 + oxygen * 0.007 - toxins * 0.010));
+          if (alpha <= 0.010) continue;
           this.ctx.fillStyle = `rgba(${50 + plankton * 70}, ${145 + oxygen * 75}, ${170 + plankton * 40}, ${alpha})`;
           this.ctx.fillRect(x * cellW, y * cellH, cellW * step, cellH * step);
         }
@@ -247,13 +234,26 @@
       this.ctx.save();
       for (let i = 0; i < count; i += 1) {
         const particle = this.particles[i % this.particles.length];
-        const x = ((particle.x + Math.sin(now * 0.00007 + particle.phase) * 0.020) % 1) * this.width;
+        const x = ((particle.x + Math.sin(now * 0.00007 + particle.phase) * particle.drift) % 1) * this.width;
         const y = ((particle.y - now * particle.speed * 0.000005 + 1) % 1) * this.height;
         const size = particle.size * (this.quality === "high" ? 1.0 : 0.72);
-        this.ctx.fillStyle = `rgba(125, 240, 226, ${particle.alpha})`;
-        this.ctx.beginPath();
-        this.ctx.arc(x, y, size, 0, TAU);
-        this.ctx.fill();
+        if (particle.kind === "bubble") {
+          this.ctx.strokeStyle = `rgba(145, 245, 236, ${particle.alpha * 0.78})`;
+          this.ctx.lineWidth = Math.max(0.6, size * 0.18);
+          this.ctx.beginPath();
+          this.ctx.arc(x, y, size * 1.55, 0, TAU);
+          this.ctx.stroke();
+        } else if (particle.kind === "ember") {
+          this.ctx.fillStyle = `rgba(208, 112, 255, ${particle.alpha * 0.82})`;
+          this.ctx.beginPath();
+          this.ctx.ellipse(x, y, size * 0.55, size * 1.7, particle.phase, 0, TAU);
+          this.ctx.fill();
+        } else {
+          this.ctx.fillStyle = `rgba(125, 240, 226, ${particle.alpha})`;
+          this.ctx.beginPath();
+          this.ctx.arc(x, y, size, 0, TAU);
+          this.ctx.fill();
+        }
       }
       this.ctx.restore();
     }
@@ -360,7 +360,7 @@
       if (!this.depthByFish.has(key)) this.depthByFish.set(key, hash01(key));
       const stable = this.depthByFish.get(key);
       const yDepth = clamp((fish.renderY ?? fish.y ?? 0) / Math.max(1, env.height || 1), 0, 1);
-      return clamp(stable * 0.55 + yDepth * 0.45, 0, 1);
+      return clamp(stable * 0.50 + yDepth * 0.50, 0, 1);
     }
 
     drawOrganism(fish, sx, sy, now) {
@@ -372,9 +372,9 @@
       const quality = QUALITY_SETTINGS[this.quality];
       const x = (fish.renderX ?? fish.x) * sx;
       const y = (fish.renderY ?? fish.y) * sy;
-      const baseScale = 0.58 + depth * 0.72;
+      const baseScale = 0.54 + depth * 0.70;
       const r = Math.max(2.2, fish.radius * Math.min(sx, sy) * baseScale);
-      const alpha = clamp((0.30 + depth * 0.68) * (0.60 + (fish.health || 0.7) * 0.42), 0.18, 1);
+      const alpha = clamp((0.23 + depth * 0.76) * (0.60 + (fish.health || 0.7) * 0.42), 0.14, 1);
       const bodyLength = r * phenotype.body_length * (0.94 + morphology.body_axis_length * 0.12);
       const bodyDepth = r * phenotype.body_depth * (0.90 + morphology.body_axis_depth * 0.14);
       const tailLength = r * phenotype.tail_length;
@@ -446,7 +446,17 @@
       const canvas = createCanvas(width, height);
       const ctx = canvas.getContext("2d");
       ctx.translate(width / 2, height / 2);
-      ctx.fillStyle = phenotype.primary_color;
+      const glow = glowColor(phenotype, morphology, tier === "foreground" ? 0.36 : tier === "midwater" ? 0.24 : 0.12);
+      ctx.save();
+      ctx.globalAlpha = tier === "background" ? 0.20 : tier === "midwater" ? 0.32 : 0.42;
+      ctx.shadowBlur = r * (tier === "foreground" ? 0.82 : 0.45);
+      ctx.shadowColor = glow;
+      ctx.fillStyle = glow;
+      bodyPath(ctx, phenotype, bodyLength, bodyDepth, 0);
+      ctx.fill();
+      ctx.restore();
+      if (tier !== "background") drawSideFins(ctx, phenotype, morphology, bodyLength, bodyDepth, r, tier);
+      ctx.fillStyle = bodyGradient(ctx, phenotype, bodyLength, bodyDepth);
       ctx.strokeStyle = stateColor(morphology.viability_index);
       ctx.lineWidth = Math.max(1, r * 0.12);
       bodyPath(ctx, phenotype, bodyLength, bodyDepth, 0);
@@ -461,6 +471,7 @@
       if (tier !== "background") drawArmor(ctx, phenotype, morphology, bodyLength, bodyDepth, r);
       if (tier === "foreground" || morphology.chemical_marker > 0.28) drawChemical(ctx, morphology, bodyLength, bodyDepth, r);
       drawEye(ctx, phenotype, morphology, bodyLength, bodyDepth, r);
+      if (tier === "foreground") drawLateralGlow(ctx, phenotype, morphology, bodyLength, bodyDepth, r);
       if (tier !== "background") drawAppendages(ctx, phenotype, morphology, bodyLength, bodyDepth, r, QUALITY_SETTINGS[this.quality].appendageScale);
       return { canvas, width, height };
     }
@@ -471,9 +482,11 @@
       const tip = root - tailLength * (1.0 + Math.abs(pulse) * 0.05);
       const spread = depth * (0.48 + phenotype.fin_span * 0.20);
       ctx.save();
-      ctx.globalAlpha *= 0.78;
-      ctx.fillStyle = mixAlpha(phenotype.accent_color, 0.36 + depthValue * 0.32);
-      ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.52 + depthValue * 0.22);
+      ctx.globalAlpha *= 0.82;
+      ctx.shadowBlur = depthValue > 0.76 ? Math.max(2, depth * 0.18) : 0;
+      ctx.shadowColor = glowColor(phenotype, {}, 0.36);
+      ctx.fillStyle = mixAlpha(phenotype.accent_color, 0.28 + depthValue * 0.34);
+      ctx.strokeStyle = glowColor(phenotype, {}, 0.24 + depthValue * 0.28);
       ctx.lineWidth = Math.max(1, depth * 0.10);
       ctx.beginPath();
       if (phenotype.tail === "forked" || phenotype.tail === "lunate") {
@@ -489,6 +502,13 @@
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "rgba(218, 255, 246, 0.20)";
+      ctx.lineWidth = Math.max(0.8, depth * 0.055);
+      ctx.beginPath();
+      ctx.moveTo(root, 0);
+      ctx.quadraticCurveTo((root + tip) * 0.5, pulse * depth * 0.18, tip, pulse * depth * 0.06);
+      ctx.stroke();
       ctx.restore();
     }
 
@@ -496,7 +516,9 @@
       const ctx = this.ctx;
       if (this.quality === "low" || this.quality === "minimum") return;
       ctx.save();
-      ctx.strokeStyle = `rgba(175, 255, 240, ${0.10 + (phenotype.iridescence || 0) * 0.20 + (morphology.sensory_surface || 0) * 0.06})`;
+      ctx.shadowBlur = Math.max(2, r * 0.24);
+      ctx.shadowColor = glowColor(phenotype, morphology, 0.38);
+      ctx.strokeStyle = `rgba(178, 255, 240, ${0.16 + (phenotype.iridescence || 0) * 0.24 + (morphology.sensory_surface || 0) * 0.08})`;
       ctx.lineWidth = Math.max(1, r * 0.045);
       for (let i = 0; i < 2; i += 1) {
         ctx.beginPath();
@@ -505,7 +527,7 @@
         ctx.stroke();
       }
       if ((phenotype.barbel_length || 0) > 0.18 || (morphology.sensory_surface || 0) > 0.62) {
-        ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.66);
+        ctx.strokeStyle = glowColor(phenotype, morphology, 0.72);
         ctx.lineWidth = Math.max(1, r * 0.05);
         for (const side of [-1, 1]) {
           ctx.beginPath();
@@ -525,6 +547,8 @@
       this.ctx.save();
       this.ctx.globalAlpha = 1;
       this.ctx.strokeStyle = selected ? "rgba(255, 255, 255, 0.96)" : compared ? "rgba(230, 176, 93, 0.96)" : "rgba(112, 245, 214, 0.82)";
+      this.ctx.shadowBlur = selected || compared ? 7 : 4;
+      this.ctx.shadowColor = selected ? "rgba(190, 255, 247, 0.70)" : compared ? "rgba(255, 194, 113, 0.66)" : "rgba(112, 245, 214, 0.52)";
       this.ctx.lineWidth = selected || compared ? 2 : 1;
       this.ctx.beginPath();
       this.ctx.ellipse(0, 0, (length + tailLength) * 0.76, depth * 1.64, 0, 0, TAU);
@@ -581,6 +605,121 @@
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+    ctx.restore();
+  }
+
+  function drawLightShafts(ctx, width, height, now, strength) {
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    const drift = Math.sin(now * 0.00008) * width * 0.018;
+    for (let i = 0; i < 6; i += 1) {
+      const x = width * (0.10 + i * 0.16) + drift * (i % 2 ? -1 : 1);
+      const top = width * (0.028 + hash01(`ray-top-${i}`) * 0.035);
+      const bottom = width * (0.09 + hash01(`ray-bottom-${i}`) * 0.08);
+      const alpha = (0.018 + hash01(`ray-a-${i}`) * 0.018) * strength;
+      const gradient = ctx.createLinearGradient(0, 0, 0, height);
+      gradient.addColorStop(0, `rgba(126, 231, 255, ${alpha})`);
+      gradient.addColorStop(0.62, `rgba(126, 231, 255, ${alpha * 0.30})`);
+      gradient.addColorStop(1, "rgba(126, 231, 255, 0)");
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.moveTo(x - top, 0);
+      ctx.lineTo(x + top, 0);
+      ctx.lineTo(x + bottom, height);
+      ctx.lineTo(x - bottom * 0.55, height);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawFallbackReef(ctx, width, height, now, quality) {
+    const shimmer = QUALITY_SETTINGS[quality].shimmer;
+    ctx.save();
+    const base = height * 0.78;
+    for (let layer = 0; layer < 3; layer += 1) {
+      const yBase = base + layer * height * 0.07;
+      ctx.fillStyle = `rgba(${4 + layer * 3}, ${20 + layer * 12}, ${42 + layer * 15}, ${0.30 + layer * 0.10})`;
+      ctx.beginPath();
+      ctx.moveTo(0, height);
+      for (let i = 0; i <= 12; i += 1) {
+        const x = (i / 12) * width;
+        const y = yBase + Math.sin(i * 1.17 + layer * 0.8) * height * (0.025 + layer * 0.013);
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(width, height);
+      ctx.closePath();
+      ctx.fill();
+    }
+    if (quality !== "minimum") {
+      for (let i = 0; i < 26; i += 1) {
+        const x = hash01(`reef-x-${i}`) * width;
+        const y = height * (0.72 + hash01(`reef-y-${i}`) * 0.22);
+        const h = height * (0.045 + hash01(`reef-h-${i}`) * 0.16);
+        const sway = Math.sin(now * 0.00025 + i) * width * 0.004 * shimmer;
+        const color = i % 3 === 0 ? "rgba(100, 238, 224, 0.18)" : i % 3 === 1 ? "rgba(178, 93, 255, 0.15)" : "rgba(128, 255, 177, 0.13)";
+        ctx.strokeStyle = "rgba(22, 73, 94, 0.32)";
+        ctx.lineWidth = 1 + hash01(`reef-w-${i}`) * 3;
+        ctx.beginPath();
+        ctx.moveTo(x, y + h * 0.42);
+        ctx.quadraticCurveTo(x + sway, y - h * 0.22, x + sway * 1.8, y - h);
+        ctx.stroke();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x + sway * 1.8, y - h, 2 + hash01(`reef-r-${i}`) * 4, 0, TAU);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawReefForeground(ctx, width, height, now, quality) {
+    const shimmer = QUALITY_SETTINGS[quality].shimmer;
+    const clusters = quality === "low" ? 7 : 13;
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    for (let i = 0; i < clusters; i += 1) {
+      const sideBias = i % 5 === 0 ? 0.08 : i % 5 === 1 ? 0.92 : hash01(`fg-x-${i}`);
+      const x = sideBias * width + Math.sin(now * 0.00008 + i) * width * 0.006 * shimmer;
+      const y = height * (0.77 + hash01(`fg-y-${i}`) * 0.20);
+      const stalks = quality === "low" ? 4 + Math.floor(hash01(`fg-s-${i}`) * 4) : 7 + Math.floor(hash01(`fg-s-${i}`) * 8);
+      const heightBase = height * (0.055 + hash01(`fg-h-${i}`) * 0.12);
+      const cyan = i % 3 === 0;
+      const magenta = i % 3 === 1;
+      const glow = cyan ? [78, 238, 232] : magenta ? [205, 92, 255] : [128, 255, 185];
+      for (let j = 0; j < stalks; j += 1) {
+        const t = stalks === 1 ? 0 : j / (stalks - 1);
+        const spread = (t - 0.5) * width * (0.025 + hash01(`fg-sp-${i}`) * 0.03);
+        const h = heightBase * (0.55 + hash01(`fg-stem-${i}-${j}`) * 0.80);
+        const bend = Math.sin(now * 0.00024 + i * 0.7 + j) * width * 0.006 * shimmer;
+        const x0 = x + spread;
+        const y0 = y + height * 0.08;
+        const x1 = x + spread * 0.45 + bend;
+        const y1 = y - h;
+        ctx.strokeStyle = `rgba(${glow[0]}, ${glow[1]}, ${glow[2]}, ${0.060 + hash01(`fg-a-${i}-${j}`) * 0.075})`;
+        ctx.lineWidth = 0.8 + hash01(`fg-w-${i}-${j}`) * 1.8;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.quadraticCurveTo(x0 + bend * 0.7, y0 - h * 0.55, x1, y1);
+        ctx.stroke();
+        if (j % 2 === 0 || quality === "high") {
+          const r = 1.4 + hash01(`fg-r-${i}-${j}`) * 3.8;
+          ctx.fillStyle = `rgba(${glow[0]}, ${glow[1]}, ${glow[2]}, ${0.075 + hash01(`fg-dot-${i}-${j}`) * 0.12})`;
+          ctx.beginPath();
+          ctx.arc(x1, y1, r, 0, TAU);
+          ctx.fill();
+        }
+      }
+    }
+    ctx.restore();
+
+    ctx.save();
+    const floor = ctx.createLinearGradient(0, height * 0.74, 0, height);
+    floor.addColorStop(0, "rgba(0, 0, 0, 0)");
+    floor.addColorStop(0.62, "rgba(1, 7, 16, 0.24)");
+    floor.addColorStop(1, "rgba(0, 1, 5, 0.46)");
+    ctx.fillStyle = floor;
+    ctx.fillRect(0, height * 0.70, width, height * 0.30);
     ctx.restore();
   }
 
@@ -666,33 +805,78 @@
     ctx.closePath();
   }
 
-  function drawStaticPattern(ctx, phenotype, length, depth) {
-    ctx.fillStyle = "rgba(255, 255, 255, 0.10)";
+  function bodyGradient(ctx, phenotype, length, depth) {
+    const gradient = ctx.createLinearGradient(0, -depth, 0, depth);
+    gradient.addColorStop(0, mixAlpha("#f4fff6", 0.30));
+    gradient.addColorStop(0.18, mixAlpha(phenotype.primary_color, 0.92));
+    gradient.addColorStop(0.68, mixAlpha(phenotype.primary_color, 0.82));
+    gradient.addColorStop(1, mixAlpha(phenotype.accent_color, 0.54));
+    return gradient;
+  }
+
+  function drawSideFins(ctx, phenotype, morphology, length, depth, r, tier) {
+    const finAlpha = tier === "foreground" ? 0.34 : 0.23;
+    const finSpan = 0.34 + Number(phenotype.fin_span || 0.6) * 0.30 + Number(morphology.appendage_flexibility || 0.4) * 0.08;
+    ctx.save();
+    ctx.fillStyle = glowColor(phenotype, morphology, finAlpha);
+    ctx.strokeStyle = glowColor(phenotype, morphology, finAlpha + 0.16);
+    ctx.lineWidth = Math.max(0.8, r * 0.045);
+    ctx.shadowBlur = tier === "foreground" ? Math.max(2, r * 0.25) : 0;
+    ctx.shadowColor = glowColor(phenotype, morphology, 0.30);
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(length * 0.06, side * depth * 0.42);
+      ctx.quadraticCurveTo(-length * 0.10, side * depth * (0.82 + finSpan * 0.28), -length * 0.34, side * depth * (0.56 + finSpan * 0.35));
+      ctx.quadraticCurveTo(-length * 0.12, side * depth * 0.50, length * 0.16, side * depth * 0.28);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawLateralGlow(ctx, phenotype, morphology, length, depth, r) {
+    const glow = 0.14 + Number(phenotype.iridescence || 0) * 0.20 + Number(morphology.sensory_surface || 0) * 0.07;
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.strokeStyle = glowColor(phenotype, morphology, Math.min(0.42, glow));
+    ctx.lineWidth = Math.max(0.8, r * 0.035);
+    ctx.shadowBlur = Math.max(2, r * 0.18);
+    ctx.shadowColor = glowColor(phenotype, morphology, 0.34);
     ctx.beginPath();
-    ctx.ellipse(0, -depth * 0.24, length * 0.50, depth * 0.24, 0, Math.PI, Math.PI * 2);
+    ctx.moveTo(-length * 0.46, -depth * 0.02);
+    ctx.quadraticCurveTo(-length * 0.04, -depth * 0.14, length * 0.43, -depth * 0.04);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawStaticPattern(ctx, phenotype, length, depth) {
+    ctx.fillStyle = "rgba(230, 255, 245, 0.12)";
+    ctx.beginPath();
+    ctx.ellipse(0, -depth * 0.25, length * 0.50, depth * 0.23, 0, Math.PI, Math.PI * 2);
     ctx.fill();
     const contrast = clamp(phenotype.pattern_contrast, 0, 1);
-    ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.18 + contrast * 0.52);
-    ctx.fillStyle = mixAlpha(phenotype.accent_color, 0.16 + contrast * 0.42);
-    ctx.lineWidth = Math.max(1, depth * (0.04 + contrast * 0.03));
+    ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.16 + contrast * 0.34);
+    ctx.fillStyle = mixAlpha(phenotype.accent_color, 0.12 + contrast * 0.28);
+    ctx.lineWidth = Math.max(0.8, depth * (0.03 + contrast * 0.024));
     if (phenotype.pattern === "striped" || phenotype.pattern === "banded") {
       const count = phenotype.stripe_count || 5;
       for (let i = 0; i < count; i += 1) {
         const x = -length * 0.43 + (i / Math.max(1, count - 1)) * length * 0.78;
         ctx.beginPath();
-        ctx.moveTo(x, -depth * 0.54);
-        ctx.quadraticCurveTo(x + length * 0.04, 0, x - length * 0.02, depth * 0.54);
+        ctx.moveTo(x, -depth * 0.47);
+        ctx.quadraticCurveTo(x + length * 0.035, 0, x - length * 0.018, depth * 0.47);
         ctx.stroke();
       }
-      return;
     }
+    ctx.fillStyle = "rgba(205, 255, 240, 0.18)";
     const count = Math.min(12, phenotype.spot_count || 8);
     for (let i = 0; i < count; i += 1) {
       const t = (i + 1) / (count + 1);
       const x = -length * 0.46 + t * length * 0.86;
       const y = Math.sin(i * 2.31) * depth * 0.36;
       ctx.beginPath();
-      ctx.arc(x, y, depth * (0.055 + (i % 4) * 0.012), 0, TAU);
+      ctx.arc(x, y, depth * (0.035 + (i % 4) * 0.008), 0, TAU);
       ctx.fill();
     }
   }
@@ -701,16 +885,21 @@
     const headScale = Number(morphology.head_scale || 0.9);
     const mouthScale = Number(morphology.mouth_scale || 0.6);
     const headX = length * 0.33;
-    ctx.fillStyle = mixAlpha(phenotype.primary_color, 0.82);
-    ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.62);
+    ctx.save();
+    ctx.shadowBlur = Math.max(1.5, r * 0.16);
+    ctx.shadowColor = glowColor(phenotype, morphology, 0.34);
+    ctx.fillStyle = bodyGradient(ctx, phenotype, depth, depth);
+    ctx.strokeStyle = glowColor(phenotype, morphology, 0.36);
     ctx.lineWidth = Math.max(1, r * 0.06);
     ctx.beginPath();
-    ctx.ellipse(headX, 0, depth * (0.25 + headScale * 0.18), depth * (0.34 + headScale * 0.14), 0, 0, TAU);
+    ctx.ellipse(headX, 0, depth * (0.24 + headScale * 0.20), depth * (0.32 + headScale * 0.16), 0, 0, TAU);
     ctx.fill();
     ctx.stroke();
     const mouthX = length * (0.49 + mouthScale * 0.04);
+    ctx.shadowBlur = 0;
     ctx.fillStyle = "rgba(3, 9, 15, 0.82)";
-    ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.72);
+    ctx.strokeStyle = glowColor(phenotype, morphology, 0.54);
+    ctx.lineWidth = Math.max(0.85, r * 0.048);
     ctx.beginPath();
     if (morphology.mouth_shape === "filter_slot") {
       ctx.rect(mouthX - r * 0.02, -depth * mouthScale * 0.22, Math.max(1, r * 0.18), depth * mouthScale * 0.44);
@@ -726,13 +915,15 @@
     }
     ctx.fill();
     ctx.stroke();
+    ctx.restore();
   }
 
   function drawArmor(ctx, phenotype, morphology, length, depth, r) {
     const armor = Number(morphology.armor_density || 0);
     const spines = Number(morphology.spine_density || 0);
     if (armor <= 0.16 && spines <= 0.12) return;
-    ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.28 + armor * 0.38);
+    ctx.save();
+    ctx.strokeStyle = glowColor(phenotype, morphology, 0.20 + armor * 0.30);
     ctx.lineWidth = Math.max(1, r * (0.03 + armor * 0.04));
     const plates = Math.max(3, Math.min(8, Math.round(3 + armor * 5)));
     for (let i = 0; i < plates; i += 1) {
@@ -743,7 +934,9 @@
       ctx.stroke();
     }
     const spineCount = Math.min(8, Math.round(spines * 8));
-    ctx.fillStyle = mixAlpha(phenotype.accent_color, 0.62);
+    ctx.fillStyle = glowColor(phenotype, morphology, 0.52);
+    ctx.shadowBlur = spines > 0.18 ? Math.max(1, r * 0.12) : 0;
+    ctx.shadowColor = glowColor(phenotype, morphology, 0.36);
     for (let i = 0; i < spineCount; i += 1) {
       const t = (i + 1) / (spineCount + 1);
       const x = -length * 0.42 + t * length * 0.80;
@@ -754,6 +947,7 @@
       ctx.closePath();
       ctx.fill();
     }
+    ctx.restore();
   }
 
   function drawAppendages(ctx, phenotype, morphology, length, depth, r, scale) {
@@ -762,8 +956,11 @@
     const len = r * (0.42 + morphology.appendage_length * 1.25);
     const flex = Number(morphology.appendage_flexibility || 0.4);
     const strength = Number(morphology.appendage_strength || 0.4);
-    ctx.strokeStyle = mixAlpha(phenotype.accent_color, 0.44 + strength * 0.18);
+    ctx.save();
+    ctx.strokeStyle = glowColor(phenotype, morphology, 0.34 + strength * 0.22);
     ctx.lineWidth = Math.max(1, r * (0.03 + strength * 0.035));
+    ctx.shadowBlur = Math.max(1.2, r * (0.08 + flex * 0.10));
+    ctx.shadowColor = glowColor(phenotype, morphology, 0.28 + flex * 0.20);
     const slots = Math.max(1, Math.ceil(count / 2));
     let drawn = 0;
     for (let i = 0; i < slots && drawn < count; i += 1) {
@@ -777,13 +974,25 @@
         ctx.moveTo(anchorX, anchorY);
         ctx.quadraticCurveTo(anchorX - len * 0.16, anchorY + side * len * (0.28 + flex * 0.10), anchorX - len * (0.22 + t * 0.18), anchorY + side * len * (0.58 + flex * 0.28));
         ctx.stroke();
+        if (flex > 0.48 || strength > 0.48) {
+          const tipX = anchorX - len * (0.22 + t * 0.18);
+          const tipY = anchorY + side * len * (0.58 + flex * 0.28);
+          ctx.fillStyle = glowColor(phenotype, morphology, 0.36 + strength * 0.18);
+          ctx.beginPath();
+          ctx.arc(tipX, tipY, Math.max(0.8, r * 0.035), 0, TAU);
+          ctx.fill();
+        }
       }
     }
+    ctx.restore();
   }
 
   function drawChemical(ctx, morphology, length, depth, r) {
     const marker = Number(morphology.chemical_marker || 0);
     if (marker <= 0.12) return;
+    ctx.save();
+    ctx.shadowBlur = Math.max(2, r * 0.30);
+    ctx.shadowColor = `rgba(168, 255, 116, ${Math.min(0.48, 0.18 + marker * 0.30)})`;
     ctx.fillStyle = `rgba(184, 255, 128, ${Math.min(0.62, 0.18 + marker * 0.42)})`;
     const glands = Math.max(1, Math.min(5, Math.round(marker * 5)));
     for (let i = 0; i < glands; i += 1) {
@@ -794,13 +1003,22 @@
       ctx.ellipse(x, y, r * (0.05 + marker * 0.08), r * (0.03 + marker * 0.05), 0, 0, TAU);
       ctx.fill();
     }
+    ctx.restore();
   }
 
   function drawEye(ctx, phenotype, morphology, length, depth, r) {
+    ctx.save();
+    ctx.shadowBlur = Math.max(1.5, r * 0.16);
+    ctx.shadowColor = glowColor(phenotype, morphology, 0.48);
+    ctx.fillStyle = glowColor(phenotype, morphology, 0.84);
+    ctx.beginPath();
+    ctx.arc(length * (0.31 + morphology.head_scale * 0.05), -depth * 0.20, Math.max(1.25, r * 0.12 * phenotype.eye_scale * (0.84 + morphology.sensory_surface * 0.18)), 0, TAU);
+    ctx.fill();
     ctx.fillStyle = "rgba(3, 12, 18, 0.78)";
     ctx.beginPath();
-    ctx.arc(length * (0.31 + morphology.head_scale * 0.05), -depth * 0.20, Math.max(1.0, r * 0.09 * phenotype.eye_scale * (0.84 + morphology.sensory_surface * 0.18)), 0, TAU);
+    ctx.arc(length * (0.31 + morphology.head_scale * 0.05), -depth * 0.20, Math.max(0.85, r * 0.065 * phenotype.eye_scale * (0.84 + morphology.sensory_surface * 0.18)), 0, TAU);
     ctx.fill();
+    ctx.restore();
   }
 
   function renderSignature(phenotype, morphology, tier, r) {
@@ -816,8 +1034,13 @@
       phenotype.spot_count,
       morphology.morphology_hash,
       morphology.mouth_shape,
+      Math.round(morphology.head_scale * 10),
+      Math.round(morphology.mouth_scale * 10),
       Math.round(morphology.armor_density * 10),
       Math.round(morphology.appendage_count),
+      Math.round(morphology.appendage_length * 10),
+      Math.round(morphology.sensory_surface * 10),
+      Math.round(phenotype.iridescence * 10),
       Math.round(morphology.chemical_marker * 10),
     ].join("|");
   }
@@ -832,7 +1055,9 @@
         phase: seed * TAU,
         speed: 0.28 + hash01(`s-${i}`) * 0.72,
         size: 0.8 + hash01(`z-${i}`) * 1.8,
-        alpha: 0.10 + hash01(`a-${i}`) * 0.20,
+        alpha: 0.08 + hash01(`a-${i}`) * 0.19,
+        drift: 0.010 + hash01(`d-${i}`) * 0.030,
+        kind: hash01(`k-${i}`) > 0.86 ? "bubble" : hash01(`k2-${i}`) > 0.88 ? "ember" : "speck",
       });
     }
     return rows;
@@ -852,6 +1077,22 @@
     if (viability < 0.35) return "rgba(255, 116, 138, 0.76)";
     if (viability < 0.55) return "rgba(235, 185, 84, 0.72)";
     return "rgba(205, 255, 242, 0.56)";
+  }
+
+  function glowColor(phenotype, morphology = {}, alpha = 0.4) {
+    const marker = Number(morphology.chemical_marker || 0);
+    const sensory = Number(morphology.sensory_surface || 0);
+    const iridescence = Number(phenotype.iridescence || 0);
+    if (marker > 0.34) return `rgba(156, 255, 128, ${alpha})`;
+    if (sensory > 0.68) return `rgba(96, 240, 255, ${alpha})`;
+    if (iridescence > 0.30) return `rgba(190, 106, 255, ${alpha})`;
+    const rgb = hexToRgb(phenotype.accent_color);
+    if (rgb) {
+      const blue = Math.min(255, Math.round(rgb.b + 86));
+      const green = Math.min(255, Math.round(rgb.g + 62));
+      return `rgba(${Math.max(60, rgb.r)}, ${Math.max(120, green)}, ${Math.max(175, blue)}, ${alpha})`;
+    }
+    return `rgba(116, 238, 222, ${alpha})`;
   }
 
   function mixAlpha(color, alpha) {

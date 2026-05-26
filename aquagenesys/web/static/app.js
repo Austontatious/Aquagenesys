@@ -14,7 +14,7 @@ const INTERPOLATION_DELAY_MS = 280;
 const TAU = Math.PI * 2;
 const queryParams = new URLSearchParams(window.location.search);
 const rendererMode = queryParams.get("renderer") || "";
-const reefRendererEnabled = rendererMode === "reef-v0" && Boolean(window.AquagenesysReefRenderer);
+const reefRendererEnabled = rendererMode !== "classic" && rendererMode !== "legacy" && Boolean(window.AquagenesysReefRenderer);
 const reefRenderer = reefRendererEnabled
   ? window.AquagenesysReefRenderer.init(canvas, {
       backgroundUrl:

@@ -9,7 +9,8 @@ def test_reef_renderer_module_is_feature_flagged() -> None:
     app_js = (STATIC / "app.js").read_text(encoding="utf-8")
     index_html = (STATIC / "index.html").read_text(encoding="utf-8")
 
-    assert 'rendererMode === "reef-v0"' in app_js
+    assert 'rendererMode !== "classic"' in app_js
+    assert 'rendererMode !== "legacy"' in app_js
     assert "window.AquagenesysReefRenderer.init" in app_js
     assert 'window.aquagenesysReefRenderer = reefRenderer' in app_js
     assert index_html.index("/static/renderer_canvas.js") < index_html.index("/static/app.js")
