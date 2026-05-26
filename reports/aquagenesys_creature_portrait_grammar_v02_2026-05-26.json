@@ -1,0 +1,112 @@
+{
+  "schema": "aquagenesys.visual_report.v1",
+  "date": "2026-05-26",
+  "task": "procedural_creature_portrait_grammar_v02",
+  "starting_head": "2ff9ac37337314c101e785312549d4a25eb55c2b",
+  "runtime": {
+    "url": "http://127.0.0.1:8776/",
+    "reset_before_final_smoke": true
+  },
+  "schemas": {
+    "frame": "aquagenesys.frame.v3",
+    "state": "aquagenesys.state.v12"
+  },
+  "integration": {
+    "module": "aquagenesys/web/static/creature_portrait.js",
+    "sidebar_canvas": "creaturePortrait",
+    "sidebar_panel": "fishPortraitPanel",
+    "loaded_before_app_js": true,
+    "tank_renderer_changed": false,
+    "simulation_mechanics_changed": false,
+    "portrait_redraw_policy": "render only when portrait signature or canvas layout changes, with same-fish condition updates throttled"
+  },
+  "exports": [
+    "initCreaturePortrait",
+    "renderCreaturePortrait",
+    "buildCreatureVisualDescriptor",
+    "chooseCreatureArchetype",
+    "getCreaturePortraitDebugInfo"
+  ],
+  "archetypes": [
+    "reef_fish",
+    "ribbon_swimmer",
+    "jelly_floater",
+    "armored_filter_feeder",
+    "frilled_symbiont",
+    "schooling_minnow",
+    "eel_glider",
+    "spiral_drifter",
+    "spined_crawler",
+    "translucent_exotic"
+  ],
+  "screenshots": {
+    "desktop_no_selection": "reports/visual/creature_portrait_v02_2026-05-26/desktop_no_selection.png",
+    "desktop_selected": "reports/visual/creature_portrait_v02_2026-05-26/desktop_selected.png",
+    "mobile_selected": "reports/visual/creature_portrait_v02_2026-05-26/mobile_selected.png",
+    "classic_fallback": "reports/visual/creature_portrait_v02_2026-05-26/classic_fallback.png",
+    "low_quality_compare": "reports/visual/creature_portrait_v02_2026-05-26/low_quality_compare.png",
+    "archetype_grid": "reports/visual/creature_portrait_v02_2026-05-26/archetype_grid.png"
+  },
+  "visual_review": {
+    "selected_portrait_is_larger_prettier_view": true,
+    "more_detailed_than_tank_organism": true,
+    "fits_bioluminescent_reef_aesthetic": true,
+    "shows_variety_beyond_jellyfish": true,
+    "organism_readable_against_portrait_background": true,
+    "sidebar_usable": true,
+    "mobile_no_horizontal_overflow": true,
+    "obvious_artifacts": false,
+    "notes": "The portrait grammar produces useful variety and a richer sidebar focal image, but remains procedural Canvas primitive art."
+  },
+  "performance": {
+    "desktop_default_after_reset": {
+      "visible_organisms": 38,
+      "quality": "high",
+      "tank_average_render_ms": 2.58,
+      "tank_p95_render_ms": 3.7,
+      "portrait_render_ms": 1.2,
+      "no_per_frame_portrait_redraw": true,
+      "horizontal_overflow_px": 0
+    },
+    "mobile_390x844": {
+      "quality": "high",
+      "tank_average_render_ms": 2.19,
+      "tank_p95_render_ms": 3.0,
+      "portrait_render_ms": 0.5,
+      "horizontal_overflow_px": 0
+    },
+    "forced_low_quality": {
+      "quality": "low",
+      "tank_average_render_ms": 1.21,
+      "tank_p95_render_ms": 1.7,
+      "compare_visible": true,
+      "horizontal_overflow_px": 0
+    },
+    "classic_fallback": {
+      "reef_renderer_present": false,
+      "canvas_nonblank": true,
+      "portrait_module_loaded": true,
+      "horizontal_overflow_px": 0
+    },
+    "console_errors": 0
+  },
+  "validation": {
+    "node --check aquagenesys/web/static/app.js": "passed",
+    "node --check aquagenesys/web/static/renderer_canvas.js": "passed",
+    "node --check aquagenesys/web/static/creature_portrait.js": "passed",
+    "python3 -m pytest -q tests/test_reef_renderer_static.py": "6 passed",
+    "python3 -m pytest -q tests": "77 passed",
+    "python3 evals/runner.py --check": "passed",
+    "python3 evals/runner.py": "passed",
+    "make lint": "passed",
+    "python3 -m pytest -q tests/test_codex_standards.py --noconftest": "9 passed",
+    "python3 evals/recovery_assays.py --json": "passed; recovery_rate=1.0; no_god_mode_reseed=true"
+  },
+  "known_limitations": [
+    "Portraits are static in this pass.",
+    "The grammar is intentionally simple Canvas geometry, not final creature illustration.",
+    "The portrait classifier uses existing morphology/render hints only.",
+    "Mobile sidebar remains long-form because the dashboard shell was not redesigned."
+  ],
+  "recommended_next_step": "Tune main tank organism drawing toward the portrait grammar so selected organisms and in-tank silhouettes feel more closely related without raising tank render cost."
+}

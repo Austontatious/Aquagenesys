@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Aquagenesys v0.4.1</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=portrait-v02-grammar3" />
   </head>
   <body>
     <main class="shell">
@@ -219,6 +219,13 @@
         <section class="inspector">
           <h2>Focused Fish</h2>
           <div id="emptyInspector" class="empty">Hover a fish for preview. Click to focus. Ctrl-click a second fish to compare.</div>
+          <div id="fishPortraitPanel" class="creature-portrait-panel" hidden>
+            <canvas id="creaturePortrait" width="640" height="420" aria-label="Focused organism portrait"></canvas>
+            <div class="creature-portrait-caption">
+              <span id="creaturePortraitArchetype">Reef fish</span>
+              <span id="creaturePortraitPalette">Cyan violet</span>
+            </div>
+          </div>
           <dl id="fishInspector" class="fish-details" hidden>
             <div><dt>ID</dt><dd id="fishId">-</dd></div>
             <div><dt>Species</dt><dd id="fishSpecies">-</dd></div>
@@ -265,6 +272,7 @@
       </aside>
     </main>
     <script src="/static/renderer_canvas.js?v=reef-v0-polish"></script>
-    <script src="/static/app.js?v=reef-v0-polish"></script>
+    <script src="/static/creature_portrait.js?v=portrait-v02-grammar3"></script>
+    <script src="/static/app.js?v=portrait-v02-grammar3"></script>
   </body>
 </html>

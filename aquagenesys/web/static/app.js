@@ -28,6 +28,14 @@ const reefRenderer = reefRendererEnabled
     })
   : null;
 if (reefRenderer) window.aquagenesysReefRenderer = reefRenderer;
+const portraitCanvas = document.getElementById("creaturePortrait");
+const portraitRenderer =
+  portraitCanvas && window.AquagenesysCreaturePortrait
+    ? window.AquagenesysCreaturePortrait.initCreaturePortrait(portraitCanvas, {
+        debug: queryParams.get("portraitDebug") === "1",
+      })
+    : null;
+if (portraitRenderer) window.aquagenesysCreaturePortrait = portraitRenderer;
 
 let latestState = null;
 let latestEnvironment = null;
@@ -41,6 +49,10 @@ let hoverFishId = null;
 let selectedFishId = null;
 let compareFishId = null;
 let renderedFish = [];
+let lastPortraitSignature = "";
+let lastPortraitLayout = "";
+let lastPortraitFishId = null;
+let lastPortraitRenderedAt = 0;
 const historySamples = {
   adults: [],
   eggs: [],
@@ -52,12 +64,22 @@ function resizeCanvas() {
   const rect = canvas.getBoundingClientRect();
   if (reefRenderer) {
     reefRenderer.resize(rect.width, rect.height, window.devicePixelRatio || 1);
+    resizeCreaturePortrait(true);
     return;
   }
   const ratio = window.devicePixelRatio || 1;
   canvas.width = Math.max(720, Math.floor(rect.width * ratio));
   canvas.height = Math.max(480, Math.floor(rect.height * ratio));
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  resizeCreaturePortrait(true);
+}
+
+function resizeCreaturePortrait(invalidate = false) {
+  if (!portraitRenderer || !portraitCanvas) return;
+  const rect = portraitCanvas.getBoundingClientRect();
+  if (rect.width <= 0) return;
+  portraitRenderer.resize(rect.width, rect.height || rect.width * 0.65625, window.devicePixelRatio || 1);
+  if (invalidate) lastPortraitLayout = "";
 }
 
 window.addEventListener("resize", resizeCanvas);
@@ -1095,6 +1117,7 @@ function updateInspector() {
   if (!fish) {
     empty.hidden = false;
     details.hidden = true;
+    updateCreaturePortrait(null);
     updateCompare();
     return;
   }
@@ -1106,6 +1129,7 @@ function updateInspector() {
   const phenotype = phenotypeFor(fish);
   const morphology = morphologyFor(fish, phenotype);
   const fullFish = findStateFish(fish.id) || fish;
+  updateCreaturePortrait(mergeFishForPortrait(fish, fullFish));
   const affordances = fullFish.affordances || fullFish.morphology?.affordances || {};
   const behavior = behaviorFor(fish);
   document.getElementById("fishPhenotype").textContent = `${phenotype.shape} / ${phenotype.tail} / ${phenotype.pattern}`;
@@ -1148,6 +1172,59 @@ function updateInspector() {
   updateCompare();
   updateGenealogy(latestState?.genealogy || {});
   updateLineageStory(latestState?.lineage_story || {});
+}
+
+function updateCreaturePortrait(fish) {
+  const panel = document.getElementById("fishPortraitPanel");
+  if (!panel || !portraitRenderer || !window.AquagenesysCreaturePortrait) return;
+  if (!fish) {
+    panel.hidden = true;
+    portraitRenderer.clear();
+    lastPortraitSignature = "";
+    lastPortraitLayout = "";
+    lastPortraitFishId = null;
+    lastPortraitRenderedAt = 0;
+    return;
+  }
+  panel.hidden = false;
+  const rect = portraitCanvas.getBoundingClientRect();
+  const layoutSignature = `${Math.round(rect.width)}x${Math.round(rect.height)}@${Math.min(window.devicePixelRatio || 1, 1.8).toFixed(2)}`;
+  const info = window.AquagenesysCreaturePortrait.getCreaturePortraitDebugInfo(fish);
+  const now = performance.now();
+  const signatureChanged = info.render_signature !== lastPortraitSignature;
+  const layoutChanged = layoutSignature !== lastPortraitLayout;
+  const identityChanged = lastPortraitFishId !== fish.id;
+  if ((signatureChanged || layoutChanged) && (identityChanged || layoutChanged || now - lastPortraitRenderedAt > 1400)) {
+    const rendered = portraitRenderer.render(fish);
+    const portraitInfo = rendered || info;
+    lastPortraitSignature = portraitInfo.render_signature || info.render_signature;
+    lastPortraitLayout = layoutSignature;
+    lastPortraitFishId = fish.id;
+    lastPortraitRenderedAt = now;
+    const archetype = document.getElementById("creaturePortraitArchetype");
+    const palette = document.getElementById("creaturePortraitPalette");
+    if (archetype) archetype.textContent = labelize(portraitInfo.archetype || "reef_fish");
+    if (palette) palette.textContent = labelize(portraitInfo.palette || "cyan violet");
+    panel.dataset.archetype = portraitInfo.archetype || "";
+    panel.dataset.palette = portraitInfo.palette || "";
+  }
+}
+
+function mergeFishForPortrait(frameFish, stateFish) {
+  const state = stateFish || {};
+  return {
+    ...state,
+    ...frameFish,
+    genome: { ...(state.genome || {}), ...(frameFish.genome || {}) },
+    phenotype: { ...(state.phenotype || {}), ...(frameFish.phenotype || {}) },
+    morphology: { ...(state.morphology || {}), ...(frameFish.morphology || {}) },
+    affordances:
+      state.affordances ||
+      frameFish.affordances ||
+      state.morphology?.affordances ||
+      frameFish.morphology?.affordances ||
+      {},
+  };
 }
 
 function findFish(id) {
