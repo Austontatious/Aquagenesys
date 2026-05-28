@@ -19,6 +19,13 @@ The default model endpoint is OpenAI-compatible Lexi on `http://127.0.0.1:8008/v
 python -m aquagenesys.web.app --no-deliberation
 ```
 
+## Documentation
+
+- `docs/README.md` is the documentation index.
+- `docs/decisions/` contains chronological architecture decisions.
+- `reports/README.md` indexes generated implementation and validation reports.
+- `reports/repo_cleanup_2026-05-28.md` records the latest conservative repository cleanup.
+
 ## v0.3.9 Architecture
 
 - `aquagenesys.environment.PuddleEnvironment` owns deterministic 2D world fields: temperature, oxygen, pH, turbidity, nutrients, light, currents, shelter, substrate, obstacles, food, plankton, waste, toxins, decomposition/detritus, reproduction support, population pressure, and ecological balance.
