@@ -7,7 +7,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -26,8 +26,9 @@ class ControlRequest(BaseModel):
 
 
 class Runtime:
-    def __init__(self, config: SimulationConfig | None = None) -> None:
+    def __init__(self, config: SimulationConfig | None = None, *, public_demo: bool = False) -> None:
         self.simulation = AquagenesysSimulation(config)
+        self.public_demo = public_demo
         self.lock = Lock()
         self.last_advance = time.monotonic()
 
@@ -54,6 +55,8 @@ class Runtime:
 
     def control(self, request: ControlRequest) -> dict[str, Any]:
         with self.lock:
+            if self.public_demo and _blocked_public_demo_control(request):
+                raise HTTPException(status_code=403, detail="Unsafe controls are disabled in public demo mode.")
             if request.speed is not None:
                 self.simulation.set_speed(request.speed)
             if request.deliberation_enabled is not None:
@@ -70,8 +73,22 @@ class Runtime:
             return self.simulation.state()
 
 
-def create_app(config: SimulationConfig | None = None) -> FastAPI:
-    runtime = Runtime(config or simulation_config_from_runtime(AquagenesysRuntimeConfig.from_env()))
+def _blocked_public_demo_control(request: ControlRequest) -> bool:
+    if request.deliberation_enabled is not None:
+        return True
+    if request.action in {"reset", "randomize_environment"}:
+        return True
+    if request.action not in {None, ""}:
+        return True
+    return False
+
+
+def create_app(config: SimulationConfig | None = None, *, public_demo: bool | None = None) -> FastAPI:
+    runtime_config = AquagenesysRuntimeConfig.from_env()
+    runtime = Runtime(
+        config or simulation_config_from_runtime(runtime_config),
+        public_demo=runtime_config.public_demo if public_demo is None else public_demo,
+    )
     app = FastAPI(title="Aquagenesys v0.4.2 Evidence-Governed Dirty Puddle", version="0.4.2")
     app.state.runtime = runtime
     app.mount("/static", StaticFiles(directory=STATIC_ROOT), name="static")
@@ -147,7 +164,7 @@ def main(argv: list[str] | None = None) -> None:
             "deliberation_enabled": config.deliberation_enabled and not args.no_deliberation,
         }
     )
-    uvicorn.run(create_app(config), host=args.host, port=args.port, log_level="info")
+    uvicorn.run(create_app(config, public_demo=runtime_config.public_demo), host=args.host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":

@@ -103,6 +103,7 @@ class AquagenesysRuntimeConfig:
     archive_every_ticks: int
     instruction_inheritance_enabled: bool
     model_teaching_enabled: bool
+    public_demo: bool
 
     @classmethod
     def from_env(cls, *, prefix: str = "AQUAGENESYS_") -> "AquagenesysRuntimeConfig":
@@ -140,4 +141,5 @@ class AquagenesysRuntimeConfig:
             archive_every_ticks=_env_int(f"{prefix}ARCHIVE_EVERY_TICKS", 25),
             instruction_inheritance_enabled=_env_bool(f"{prefix}INSTRUCTION_INHERITANCE_ENABLED", True),
             model_teaching_enabled=_env_bool(f"{prefix}MODEL_TEACHING_ENABLED", False),
+            public_demo=_env_bool(f"{prefix}PUBLIC_DEMO", False),
         )

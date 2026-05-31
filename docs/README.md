@@ -9,6 +9,6 @@
 
 ## Decision Record Range
 
-- `decisions/0001-dirty-puddle-mvp.md` through `decisions/0020-v042-recursive-agent-loop-visibility.md`
+- `decisions/0001-dirty-puddle-mvp.md` through `decisions/0021-v042-demo-container-tunnel.md`
 
 Older decision records are retained as project history. Confirm current runtime behavior against `README.md`, code, tests, and latest validation reports.

@@ -1,0 +1,86 @@
+{
+  "schema": "aquagenesys.report.demo_container.v1",
+  "date": "2026-05-31",
+  "branch": "main",
+  "starting_head": "d1b22e9",
+  "ending_head": "recorded_in_final_task_response_after_commit",
+  "prepared_commit_message": "chore(aquagenesys): add demo container for tunnel launch",
+  "selected_host_port": 8782,
+  "host_bind": "127.0.0.1",
+  "container_internal_port": 8765,
+  "local_origin_url": "http://127.0.0.1:8782",
+  "cloudflare_origin_target": "http://127.0.0.1:8782",
+  "container": {
+    "image": "aquagenesys:demo",
+    "name": "aquagenesys-demo",
+    "status": "running",
+    "health": "healthy",
+    "port_binding": "127.0.0.1:8782->8765/tcp",
+    "host_network": false,
+    "privileged": false,
+    "docker_socket_mount": false,
+    "broad_host_mount": false,
+    "restart_policy": "no"
+  },
+  "launch_mode": {
+    "default_no_deliberation": true,
+    "command": ["python", "-m", "aquagenesys.web.app", "--host", "0.0.0.0", "--port", "8765", "--no-deliberation"],
+    "environment": {
+      "AQUAGENESYS_DELIBERATION_ENABLED": "false",
+      "AQUAGENESYS_MODEL_TEACHING_ENABLED": "false",
+      "AQUAGENESYS_PUBLIC_DEMO": "true",
+      "AQUAGENESYS_LLM_BASE_URL": "http://host.docker.internal:8008/v1",
+      "AQUAGENESYS_LLM_MODEL": "Lexi"
+    }
+  },
+  "lexi_vllm_route": {
+    "container_to_host_url": "http://host.docker.internal:8008/v1",
+    "models_probe_url": "http://host.docker.internal:8008/v1/models",
+    "models_probe_result": "passed",
+    "publicly_exposed": false
+  },
+  "api_control_decision": {
+    "option": "public_demo_restriction_plus_cloudflare_access_recommended",
+    "public_demo_env": "AQUAGENESYS_PUBLIC_DEMO=true",
+    "allowed": ["speed"],
+    "blocked": ["reset", "randomize_environment", "deliberation_enabled"],
+    "blocked_status_code": 403
+  },
+  "container_validation": {
+    "port_free_check": "8782 free and selected",
+    "docker_build": "passed",
+    "container_start": "passed",
+    "container_restart": "passed",
+    "api_frame": {"passed": true, "schema": "aquagenesys.frame.v3"},
+    "api_state": {"passed": true, "schema": "aquagenesys.state.v13", "deliberation_enabled": false, "model_calls": 0},
+    "page_shell": "passed",
+    "logs_tail": "normal uvicorn startup and successful API requests",
+    "browser_smoke": {"run": false, "reason": "Playwright is not installed in this environment"}
+  },
+  "standard_validation": {
+    "pytest": "passed: 85 passed",
+    "eval_check": "passed: 7 case files present",
+    "eval_runner": "passed",
+    "recovery_assays": {
+      "passed": true,
+      "recovery_possible": true,
+      "no_god_mode_reseed": true,
+      "ai_optional": true
+    },
+    "make_lint": "passed",
+    "js_checks": "passed for app.js, renderer_canvas.js, creature_portrait.js"
+  },
+  "commands": {
+    "start": "scripts/run_demo_container.sh",
+    "stop": "scripts/stop_demo_container.sh",
+    "manual_start": "docker compose -f docker-compose.demo.yml up -d",
+    "manual_stop": "docker compose -f docker-compose.demo.yml down",
+    "temporary_cloudflare_tunnel": "cloudflared tunnel --url http://127.0.0.1:8782",
+    "named_tunnel_origin_service": "http://127.0.0.1:8782"
+  },
+  "safety_notes": [
+    "Do not route Cloudflare to the container IP, host public IP, port 8008, SSH, Docker, or any model endpoint.",
+    "Cloudflare Access is recommended for narrow Dr. Hulme sharing.",
+    "The container is a local demo appliance, not production hosting."
+  ]
+}

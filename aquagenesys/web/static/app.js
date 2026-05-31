@@ -116,13 +116,23 @@ canvas.addEventListener("click", (event) => {
 });
 
 async function postControl(payload) {
-  const response = await fetch("/api/control", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const state = await response.json();
-  applyState(state);
+  try {
+    const response = await fetch("/api/control", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const state = await response.json();
+    if (!response.ok) {
+      statusEl.textContent = state.detail || "control locked";
+      if (latestState) syncControls(latestState);
+      return;
+    }
+    applyState(state);
+  } catch (error) {
+    statusEl.textContent = "control unavailable";
+    if (latestState) syncControls(latestState);
+  }
 }
 
 speed.addEventListener("input", () => {

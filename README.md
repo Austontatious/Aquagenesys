@@ -83,6 +83,40 @@ Useful local endpoints:
 
 The default optional model endpoint is OpenAI-compatible Lexi on `http://127.0.0.1:8008/v1` with model name `Lexi`. The simulation remains functional when that endpoint is absent or deliberation is disabled.
 
+## Run public demo container
+
+The demo container runs Aquagenesys as a local appliance suitable for Cloudflare Tunnel. It binds only to localhost and defaults to no-deliberation mode:
+
+```bash
+scripts/run_demo_container.sh
+```
+
+Default mapping:
+
+```text
+127.0.0.1:8782 -> container:8765
+```
+
+If `8782` is occupied, the script chooses the next free port from `8783`, `8784`, or `8785` and prints the selected origin. The compose file keeps Lexi/vLLM configured as an internal container-to-host route at `http://host.docker.internal:8008/v1`, but deliberation is off by default and port `8008` is not exposed by Docker.
+
+Useful commands:
+
+```bash
+docker compose -f docker-compose.demo.yml build
+docker compose -f docker-compose.demo.yml up -d
+scripts/stop_demo_container.sh
+```
+
+Cloudflare Tunnel origin target:
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:8782
+```
+
+For a named tunnel, use service origin `http://127.0.0.1:8782` or the fallback port printed by the run script. Do not point Cloudflare at the container IP, host public IP, port `8008`, SSH, Docker, or any model endpoint.
+
+Public-demo mode sets `AQUAGENESYS_PUBLIC_DEMO=true`. In that mode `/`, static assets, `/api/frame`, and `/api/state` remain reachable. `/api/control` allows speed changes but blocks reset, environment randomization, and AI-deliberation toggling with `403`. Cloudflare Access is still recommended for narrow sharing.
+
 ## What to watch for in the demo
 
 - Watch organisms forage, shelter, hunt, court, reproduce, and die.

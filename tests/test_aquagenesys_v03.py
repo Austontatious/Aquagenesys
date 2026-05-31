@@ -320,6 +320,24 @@ def test_frame_endpoint_advances_at_most_one_tick_per_request() -> None:
     assert frame["tick"] <= before + 1
 
 
+def test_public_demo_controls_allow_speed_but_block_unsafe_mutations() -> None:
+    app = create_app(
+        SimulationConfig(seed=58, width=28, height=18, initial_population=6, deliberation_enabled=False, archive_every_ticks=0),
+        public_demo=True,
+    )
+    with TestClient(app) as client:
+        speed_state = client.post("/api/control", json={"speed": 2}).json()
+        reset = client.post("/api/control", json={"action": "reset"})
+        randomize = client.post("/api/control", json={"action": "randomize_environment"})
+        deliberation = client.post("/api/control", json={"deliberation_enabled": True})
+        state = client.get("/api/state").json()
+    assert speed_state["config"]["speed"] == 2
+    assert reset.status_code == 403
+    assert randomize.status_code == 403
+    assert deliberation.status_code == 403
+    assert state["config"]["deliberation_enabled"] is False
+
+
 def test_fish_state_and_memory_are_externalized_to_jsonl(tmp_path) -> None:
     sim = AquagenesysSimulation(
         SimulationConfig(

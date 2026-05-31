@@ -1,0 +1,45 @@
+services:
+  aquagenesys-demo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aquagenesys:demo
+    container_name: aquagenesys-demo
+    restart: "no"
+    ports:
+      - "${AQUAGENESYS_DEMO_HOST:-127.0.0.1}:${AQUAGENESYS_DEMO_PORT:-8782}:8765"
+    environment:
+      AQUAGENESYS_HOST: "0.0.0.0"
+      AQUAGENESYS_PORT: "8765"
+      AQUAGENESYS_DELIBERATION_ENABLED: "false"
+      AQUAGENESYS_MODEL_TEACHING_ENABLED: "false"
+      AQUAGENESYS_PUBLIC_DEMO: "true"
+      AQUAGENESYS_ARCHIVE_DIR: "/tmp/aquagenesys-v03"
+      AQUAGENESYS_ARCHIVE_EVERY_TICKS: "0"
+      AQUAGENESYS_LLM_BASE_URL: "http://host.docker.internal:8008/v1"
+      AQUAGENESYS_LLM_MODEL: "Lexi"
+      AQUAGENESYS_LLM_TIMEOUT_SECONDS: "1.8"
+      AQUAGENESYS_LLM_MAX_RETRIES: "0"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/frame', timeout=5).read()",
+        ]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 20s
+    command:
+      - python
+      - -m
+      - aquagenesys.web.app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8765"
+      - --no-deliberation
