@@ -99,6 +99,14 @@ Default mapping:
 
 If `8782` is occupied, the script chooses the next free port from `8783`, `8784`, or `8785` and prints the selected origin. The compose file keeps Lexi/vLLM configured as an internal container-to-host route at `http://host.docker.internal:8008/v1`, but deliberation is off by default and port `8008` is not exposed by Docker.
 
+For controlled Lexi/vLLM testing, restart the same container route with bounded AI deliberation enabled:
+
+```bash
+scripts/run_demo_container.sh --deliberation
+```
+
+This changes only the container launch mode. It still binds Aquagenesys to localhost, keeps model teaching disabled, and does not expose port `8008`.
+
 Useful commands:
 
 ```bash

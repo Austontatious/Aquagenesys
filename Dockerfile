@@ -26,4 +26,4 @@ USER aquagenesys
 
 EXPOSE 8765
 
-CMD ["python", "-m", "aquagenesys.web.app", "--host", "0.0.0.0", "--port", "8765", "--no-deliberation"]
+CMD ["python", "-m", "aquagenesys.web.app", "--host", "0.0.0.0", "--port", "8765"]

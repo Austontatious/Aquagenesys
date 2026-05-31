@@ -53,19 +53,27 @@ Cloudflare Tunnel / HTTPS public URL
 
 ## Launch mode
 
-Default command:
+Container command:
 
 ```bash
-python -m aquagenesys.web.app --host 0.0.0.0 --port 8765 --no-deliberation
+python -m aquagenesys.web.app --host 0.0.0.0 --port 8765
 ```
 
-Deliberation is disabled by default through both the command and environment:
+Deliberation is disabled by default through the environment:
 
 ```text
 AQUAGENESYS_DELIBERATION_ENABLED=false
 AQUAGENESYS_MODEL_TEACHING_ENABLED=false
 AQUAGENESYS_PUBLIC_DEMO=true
 ```
+
+For controlled Lexi/vLLM testing, the same container route can be restarted with bounded deliberation enabled:
+
+```bash
+scripts/run_demo_container.sh --deliberation
+```
+
+That sets `AQUAGENESYS_DELIBERATION_ENABLED=true` while keeping model teaching disabled and keeping port `8008` internal-only.
 
 Lexi/vLLM remains configured only for later controlled testing:
 
@@ -105,6 +113,12 @@ Start demo:
 
 ```bash
 scripts/run_demo_container.sh
+```
+
+Start demo with optional AI deliberation:
+
+```bash
+scripts/run_demo_container.sh --deliberation
 ```
 
 Stop demo:
@@ -152,6 +166,8 @@ If `8782` is occupied, `scripts/run_demo_container.sh` chooses the next free por
 - `/api/control` public-demo restriction: passed.
 - Logs: showed normal Uvicorn startup and successful API requests.
 - Restart repeatability: `docker compose down`, `docker compose up -d`, and `/api/frame` passed after restart.
+- Optional deliberation restart: passed; `/api/state` reported `deliberation_enabled=true`, the container-to-host Lexi route was reachable, and model calls were attempted.
+- Optional deliberation caveat: Lexi calls timed out in the observed run, and API probes took roughly 6-13 seconds during those timeouts. Keep no-deliberation as the public default unless that latency is acceptable.
 - Container remains running on `127.0.0.1:8782` after validation.
 
 Browser automation smoke was not run because Playwright is not installed in this environment.

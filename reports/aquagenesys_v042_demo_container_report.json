@@ -24,7 +24,9 @@
   },
   "launch_mode": {
     "default_no_deliberation": true,
-    "command": ["python", "-m", "aquagenesys.web.app", "--host", "0.0.0.0", "--port", "8765", "--no-deliberation"],
+    "command": ["python", "-m", "aquagenesys.web.app", "--host", "0.0.0.0", "--port", "8765"],
+    "optional_deliberation_supported": true,
+    "optional_deliberation_start": "scripts/run_demo_container.sh --deliberation",
     "environment": {
       "AQUAGENESYS_DELIBERATION_ENABLED": "false",
       "AQUAGENESYS_MODEL_TEACHING_ENABLED": "false",
@@ -53,6 +55,13 @@
     "container_restart": "passed",
     "api_frame": {"passed": true, "schema": "aquagenesys.frame.v3"},
     "api_state": {"passed": true, "schema": "aquagenesys.state.v13", "deliberation_enabled": false, "model_calls": 0},
+    "optional_deliberation_restart": {
+      "passed": true,
+      "api_state_deliberation_enabled": true,
+      "lexi_route": "passed",
+      "model_call_result": "attempted_but_timed_out",
+      "api_probe_latency_seconds": "approximately 6-13 while Lexi calls timed out"
+    },
     "page_shell": "passed",
     "logs_tail": "normal uvicorn startup and successful API requests",
     "browser_smoke": {"run": false, "reason": "Playwright is not installed in this environment"}
@@ -72,6 +81,7 @@
   },
   "commands": {
     "start": "scripts/run_demo_container.sh",
+    "start_with_deliberation": "scripts/run_demo_container.sh --deliberation",
     "stop": "scripts/stop_demo_container.sh",
     "manual_start": "docker compose -f docker-compose.demo.yml up -d",
     "manual_stop": "docker compose -f docker-compose.demo.yml down",
