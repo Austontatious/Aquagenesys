@@ -6,7 +6,7 @@ Date: 2026-05-31
 
 - Branch: `main`
 - Starting HEAD for this closure pass: `6eece76`
-- Concept-closure changes are intended to land after `6eece76`.
+- Closure pass completed in `c68607b`.
 
 ## Supported claim
 
