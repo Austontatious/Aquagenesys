@@ -26,9 +26,20 @@ class ControlRequest(BaseModel):
 
 
 class Runtime:
-    def __init__(self, config: SimulationConfig | None = None, *, public_demo: bool = False) -> None:
+    def __init__(
+        self,
+        config: SimulationConfig | None = None,
+        *,
+        public_demo: bool = False,
+        auto_reset_on_extinction: bool = False,
+        auto_reset_extinction_ticks: int = 0,
+    ) -> None:
         self.simulation = AquagenesysSimulation(config)
         self.public_demo = public_demo
+        self.auto_reset_on_extinction = auto_reset_on_extinction
+        self.auto_reset_extinction_ticks = max(0, int(auto_reset_extinction_ticks))
+        self.auto_reset_count = 0
+        self._extinction_seen_tick: int | None = None
         self.lock = Lock()
         self.last_advance = time.monotonic()
 
@@ -52,22 +63,39 @@ class Runtime:
         if ticks:
             self.simulation.run(ticks)
             self.last_advance = time.monotonic()
+        self._maybe_auto_reset_after_extinction()
+
+    def _maybe_auto_reset_after_extinction(self) -> None:
+        if not self.auto_reset_on_extinction:
+            return
+        if not self.simulation.dead_puddle:
+            self._extinction_seen_tick = None
+            return
+        if self._extinction_seen_tick is None:
+            self._extinction_seen_tick = self.simulation.tick
+        if self.simulation.tick - self._extinction_seen_tick >= self.auto_reset_extinction_ticks:
+            self._reset_simulation()
+            self.auto_reset_count += 1
+            self._extinction_seen_tick = None
+
+    def _reset_simulation(self) -> None:
+        speed = self.simulation.speed
+        deliberation_enabled = self.simulation.config.deliberation_enabled
+        self.simulation.reset()
+        self.simulation.set_speed(speed)
+        self.simulation.set_deliberation_enabled(deliberation_enabled)
+        self.last_advance = time.monotonic()
 
     def control(self, request: ControlRequest) -> dict[str, Any]:
         with self.lock:
             if self.public_demo and _blocked_public_demo_control(request):
-                raise HTTPException(status_code=403, detail="Unsafe controls are disabled in public demo mode.")
+                raise HTTPException(status_code=403, detail="Control locked in public demo mode.")
             if request.speed is not None:
                 self.simulation.set_speed(request.speed)
             if request.deliberation_enabled is not None:
                 self.simulation.set_deliberation_enabled(request.deliberation_enabled)
             if request.action == "reset":
-                speed = self.simulation.speed
-                deliberation_enabled = self.simulation.config.deliberation_enabled
-                self.simulation.reset()
-                self.simulation.set_speed(speed)
-                self.simulation.set_deliberation_enabled(deliberation_enabled)
-                self.last_advance = time.monotonic()
+                self._reset_simulation()
             elif request.action == "randomize_environment":
                 self.simulation.randomize_environment()
             return self.simulation.state()
@@ -76,18 +104,32 @@ class Runtime:
 def _blocked_public_demo_control(request: ControlRequest) -> bool:
     if request.deliberation_enabled is not None:
         return True
-    if request.action in {"reset", "randomize_environment"}:
+    if request.action == "randomize_environment":
         return True
-    if request.action not in {None, ""}:
+    if request.action not in {None, "", "reset"}:
         return True
     return False
 
 
-def create_app(config: SimulationConfig | None = None, *, public_demo: bool | None = None) -> FastAPI:
+def create_app(
+    config: SimulationConfig | None = None,
+    *,
+    public_demo: bool | None = None,
+    auto_reset_on_extinction: bool | None = None,
+    auto_reset_extinction_ticks: int | None = None,
+) -> FastAPI:
     runtime_config = AquagenesysRuntimeConfig.from_env()
     runtime = Runtime(
         config or simulation_config_from_runtime(runtime_config),
         public_demo=runtime_config.public_demo if public_demo is None else public_demo,
+        auto_reset_on_extinction=(
+            runtime_config.auto_reset_on_extinction if auto_reset_on_extinction is None else auto_reset_on_extinction
+        ),
+        auto_reset_extinction_ticks=(
+            runtime_config.auto_reset_extinction_ticks
+            if auto_reset_extinction_ticks is None
+            else auto_reset_extinction_ticks
+        ),
     )
     app = FastAPI(title="Aquagenesys v0.4.2 Evidence-Governed Dirty Puddle", version="0.4.2")
     app.state.runtime = runtime

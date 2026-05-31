@@ -108,6 +108,23 @@ scripts/run_demo_container.sh --deliberation
 This changes only the container launch mode. It still binds Aquagenesys to localhost, keeps model teaching disabled, and does not expose port `8008`.
 The demo container gives Lexi up to 30 seconds per bounded deliberation call.
 
+For the current limited-release demo, UI controls are unlocked by default:
+
+```bash
+scripts/run_demo_container.sh --deliberation
+```
+
+Unlocked mode sets `AQUAGENESYS_PUBLIC_DEMO=false`, so Reset, Randomize, speed, and AI-deliberation controls are usable from the page. For broader sharing, restart with `--locked-controls`; locked mode still allows Reset and speed changes, but blocks Randomize and AI-deliberation toggles.
+
+The demo container also resets the run if the ecology reaches true extinction:
+
+```text
+AQUAGENESYS_AUTO_RESET_ON_EXTINCTION=true
+AQUAGENESYS_AUTO_RESET_EXTINCTION_TICKS=8
+```
+
+This is a whole-run reset for demo continuity, not founder reseeding inside a run. Tune launch population with `AQUAGENESYS_INITIAL_POPULATION` and `AQUAGENESYS_MAX_POPULATION` if needed.
+
 Useful commands:
 
 ```bash
@@ -124,7 +141,7 @@ cloudflared tunnel --url http://127.0.0.1:8782
 
 For a named tunnel, use service origin `http://127.0.0.1:8782` or the fallback port printed by the run script. Do not point Cloudflare at the container IP, host public IP, port `8008`, SSH, Docker, or any model endpoint.
 
-Public-demo mode sets `AQUAGENESYS_PUBLIC_DEMO=true`. In that mode `/`, static assets, `/api/frame`, and `/api/state` remain reachable. `/api/control` allows speed changes but blocks reset, environment randomization, and AI-deliberation toggling with `403`. Cloudflare Access is still recommended for narrow sharing.
+Locked-control mode sets `AQUAGENESYS_PUBLIC_DEMO=true`. In that mode `/`, static assets, `/api/frame`, and `/api/state` remain reachable. `/api/control` allows Reset and speed changes but blocks environment randomization and AI-deliberation toggling with `403`. Cloudflare Access is still recommended for narrow sharing.
 
 ## What to watch for in the demo
 

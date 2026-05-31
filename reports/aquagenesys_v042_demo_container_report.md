@@ -64,7 +64,7 @@ Deliberation is disabled by default through the environment:
 ```text
 AQUAGENESYS_DELIBERATION_ENABLED=false
 AQUAGENESYS_MODEL_TEACHING_ENABLED=false
-AQUAGENESYS_PUBLIC_DEMO=true
+AQUAGENESYS_PUBLIC_DEMO=false
 ```
 
 For controlled Lexi/vLLM testing, the same container route can be restarted with bounded deliberation enabled:
@@ -75,6 +75,23 @@ scripts/run_demo_container.sh --deliberation
 
 That sets `AQUAGENESYS_DELIBERATION_ENABLED=true` while keeping model teaching disabled and keeping port `8008` internal-only.
 The demo container timeout for Lexi/vLLM deliberation is `AQUAGENESYS_LLM_TIMEOUT_SECONDS=30.0`.
+
+For the current limited-release demo, the same route runs with controls unlocked by default:
+
+```bash
+scripts/run_demo_container.sh --deliberation
+```
+
+Unlocked mode sets `AQUAGENESYS_PUBLIC_DEMO=false`, allowing Reset, Randomize, speed, and AI-deliberation controls in the page. Locked-control mode can still be selected with `--locked-controls`; it allows Reset and speed changes but blocks Randomize and AI-deliberation toggles.
+
+The demo container uses a whole-run reset if the ecology reaches true extinction:
+
+```text
+AQUAGENESYS_AUTO_RESET_ON_EXTINCTION=true
+AQUAGENESYS_AUTO_RESET_EXTINCTION_TICKS=8
+```
+
+This prevents a long-lived dead public page while preserving the distinction from in-run debug founder reseeding.
 
 Lexi/vLLM remains configured only for later controlled testing:
 
@@ -94,17 +111,20 @@ The endpoint returned the `Lexi` model metadata. Port `8008` is not published by
 
 ## `/api/control` decision
 
-Chosen option: public-demo app restriction plus recommendation to use Cloudflare Access for narrow sharing.
+Chosen option: unlocked controls for the current limited release, with locked-control mode available if broader sharing is needed.
 
-`AQUAGENESYS_PUBLIC_DEMO=true` blocks unsafe controls:
+`AQUAGENESYS_PUBLIC_DEMO=false` leaves the page controls interactive:
 
-- `POST /api/control {"action":"reset"}` -> `403`
+- `POST /api/control {"action":"reset"}` -> `200`
+- `POST /api/control {"action":"randomize_environment"}` -> `200`
+- `POST /api/control {"deliberation_enabled":true}` -> `200`
+- `POST /api/control {"speed":2}` -> `200`
+
+`AQUAGENESYS_PUBLIC_DEMO=true` locks broader controls:
+
+- `POST /api/control {"action":"reset"}` -> `200`
 - `POST /api/control {"action":"randomize_environment"}` -> `403`
 - `POST /api/control {"deliberation_enabled":true}` -> `403`
-
-Speed control remains allowed:
-
-- `POST /api/control {"speed":2}` -> `200`
 
 The control endpoint cannot set model URLs, model names, API keys, tools, source code, energy, death rules, reproduction rules, Docker state, or host filesystem access.
 
@@ -120,6 +140,12 @@ Start demo with optional AI deliberation:
 
 ```bash
 scripts/run_demo_container.sh --deliberation
+```
+
+Start demo with controls explicitly unlocked:
+
+```bash
+scripts/run_demo_container.sh --deliberation --unlocked-controls
 ```
 
 Stop demo:
@@ -164,7 +190,9 @@ If `8782` is occupied, `scripts/run_demo_container.sh` chooses the next free por
 - `/api/frame`: passed, schema `aquagenesys.frame.v3`.
 - `/api/state`: passed, schema `aquagenesys.state.v13`, `deliberation_enabled=false`, model calls `0`.
 - `/`: passed, HTML shell returned.
-- `/api/control` public-demo restriction: passed.
+- `/api/control` public-demo restriction: passed; Reset and speed remain allowed while Randomize and AI toggle stay locked.
+- Unlocked tuning mode: passed; Reset, Randomize, speed, and AI toggle all returned `200`.
+- Auto-reset on true extinction: focused test passed with whole-run reset after true extinction.
 - Logs: showed normal Uvicorn startup and successful API requests.
 - Restart repeatability: `docker compose down`, `docker compose up -d`, and `/api/frame` passed after restart.
 - Optional deliberation restart: passed; `/api/frame` reported `deliberation_enabled=true`, the container-to-host Lexi route was reachable, and model calls succeeded after the timeout was raised to 30 seconds.

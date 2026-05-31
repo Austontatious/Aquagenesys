@@ -104,6 +104,8 @@ class AquagenesysRuntimeConfig:
     instruction_inheritance_enabled: bool
     model_teaching_enabled: bool
     public_demo: bool
+    auto_reset_on_extinction: bool
+    auto_reset_extinction_ticks: int
 
     @classmethod
     def from_env(cls, *, prefix: str = "AQUAGENESYS_") -> "AquagenesysRuntimeConfig":
@@ -142,4 +144,6 @@ class AquagenesysRuntimeConfig:
             instruction_inheritance_enabled=_env_bool(f"{prefix}INSTRUCTION_INHERITANCE_ENABLED", True),
             model_teaching_enabled=_env_bool(f"{prefix}MODEL_TEACHING_ENABLED", False),
             public_demo=_env_bool(f"{prefix}PUBLIC_DEMO", False),
+            auto_reset_on_extinction=_env_bool(f"{prefix}AUTO_RESET_ON_EXTINCTION", False),
+            auto_reset_extinction_ticks=max(0, _env_int(f"{prefix}AUTO_RESET_EXTINCTION_TICKS", 0)),
         )

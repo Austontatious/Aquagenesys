@@ -327,15 +327,33 @@ def test_public_demo_controls_allow_speed_but_block_unsafe_mutations() -> None:
     )
     with TestClient(app) as client:
         speed_state = client.post("/api/control", json={"speed": 2}).json()
+        reset_state = client.post("/api/control", json={"action": "reset"}).json()
         reset = client.post("/api/control", json={"action": "reset"})
         randomize = client.post("/api/control", json={"action": "randomize_environment"})
         deliberation = client.post("/api/control", json={"deliberation_enabled": True})
         state = client.get("/api/state").json()
     assert speed_state["config"]["speed"] == 2
-    assert reset.status_code == 403
+    assert reset_state["config"]["speed"] == 2
+    assert reset.status_code == 200
     assert randomize.status_code == 403
     assert deliberation.status_code == 403
     assert state["config"]["deliberation_enabled"] is False
+
+
+def test_runtime_auto_resets_after_true_extinction_when_enabled() -> None:
+    app = create_app(
+        SimulationConfig(seed=59, width=28, height=18, initial_population=6, deliberation_enabled=False, archive_every_ticks=0),
+        auto_reset_on_extinction=True,
+        auto_reset_extinction_ticks=0,
+    )
+    runtime = app.state.runtime
+    runtime.simulation.fish.clear()
+    runtime.simulation.eggs.clear()
+    with TestClient(app) as client:
+        state = client.get("/api/state").json()
+    assert state["run_id"] == "seed-59-run-2"
+    assert state["telemetry"]["dead_puddle"] is False
+    assert state["telemetry"]["population"] == 6
 
 
 def test_fish_state_and_memory_are_externalized_to_jsonl(tmp_path) -> None:

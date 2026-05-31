@@ -27,10 +27,13 @@
     "command": ["python", "-m", "aquagenesys.web.app", "--host", "0.0.0.0", "--port", "8765"],
     "optional_deliberation_supported": true,
     "optional_deliberation_start": "scripts/run_demo_container.sh --deliberation",
+    "unlocked_tuning_start": "scripts/run_demo_container.sh --deliberation",
     "environment": {
       "AQUAGENESYS_DELIBERATION_ENABLED": "false",
       "AQUAGENESYS_MODEL_TEACHING_ENABLED": "false",
-      "AQUAGENESYS_PUBLIC_DEMO": "true",
+      "AQUAGENESYS_PUBLIC_DEMO": "false",
+      "AQUAGENESYS_AUTO_RESET_ON_EXTINCTION": "true",
+      "AQUAGENESYS_AUTO_RESET_EXTINCTION_TICKS": "8",
       "AQUAGENESYS_LLM_BASE_URL": "http://host.docker.internal:8008/v1",
       "AQUAGENESYS_LLM_MODEL": "Lexi",
       "AQUAGENESYS_LLM_TIMEOUT_SECONDS": "30.0"
@@ -43,11 +46,13 @@
     "publicly_exposed": false
   },
   "api_control_decision": {
-    "option": "public_demo_restriction_plus_cloudflare_access_recommended",
-    "public_demo_env": "AQUAGENESYS_PUBLIC_DEMO=true",
-    "allowed": ["speed"],
-    "blocked": ["reset", "randomize_environment", "deliberation_enabled"],
-    "blocked_status_code": 403
+    "option": "unlocked_controls_for_limited_release_with_locked_mode_available",
+    "default_public_demo_env": "AQUAGENESYS_PUBLIC_DEMO=false",
+    "default_allowed": ["speed", "reset", "randomize_environment", "deliberation_enabled"],
+    "locked_public_demo_env": "AQUAGENESYS_PUBLIC_DEMO=true",
+    "locked_allowed": ["speed", "reset"],
+    "locked_blocked": ["randomize_environment", "deliberation_enabled"],
+    "locked_blocked_status_code": 403
   },
   "container_validation": {
     "port_free_check": "8782 free and selected",
@@ -67,6 +72,16 @@
       "observed_model_failures": 0,
       "observed_pending_calls": 0,
       "frame_probe_latency_seconds": "under approximately 2 seconds in observed poll"
+    },
+    "unlocked_tuning_mode": {
+      "passed": true,
+      "public_demo_env": false,
+      "allowed_controls": ["speed", "reset", "randomize_environment", "deliberation_enabled"]
+    },
+    "auto_reset_on_extinction": {
+      "passed": true,
+      "mode": "whole_run_reset",
+      "ticks": 8
     },
     "page_shell": "passed",
     "logs_tail": "normal uvicorn startup and successful API requests",
@@ -88,6 +103,7 @@
   "commands": {
     "start": "scripts/run_demo_container.sh",
     "start_with_deliberation": "scripts/run_demo_container.sh --deliberation",
+    "start_with_unlocked_controls": "scripts/run_demo_container.sh --deliberation --unlocked-controls",
     "stop": "scripts/stop_demo_container.sh",
     "manual_start": "docker compose -f docker-compose.demo.yml up -d",
     "manual_stop": "docker compose -f docker-compose.demo.yml down",

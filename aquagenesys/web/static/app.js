@@ -124,13 +124,17 @@ async function postControl(payload) {
     });
     const state = await response.json();
     if (!response.ok) {
-      statusEl.textContent = state.detail || "control locked";
+      const message = state.detail || "control locked";
+      statusEl.textContent = message.length > 34 ? "control locked" : message;
+      statusEl.title = message;
       if (latestState) syncControls(latestState);
       return;
     }
+    statusEl.title = "";
     applyState(state);
   } catch (error) {
     statusEl.textContent = "control unavailable";
+    statusEl.title = "Control request failed";
     if (latestState) syncControls(latestState);
   }
 }
