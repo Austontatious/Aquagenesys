@@ -1,8 +1,42 @@
-# Aquagenesys v0.3.9
+# Aquagenesys v0.4.1
 
-Aquagenesys v0.3.9 is a real-time dirty-puddle artificial ecology with recovery assays, an ecology observatory UI, a lineage/policy genealogy explorer, and a deterministic lineage story renderer. The CPU owns the puddle chemistry and physics; fish are bounded local agents that mostly act through reflexes and habits, with sparse AI deliberation routed to the local Lexi/Qwen-compatible endpoint when budget and pressure allow.
+Aquagenesys is a real-time artificial aquatic ecology built as a recursive agentic workflow sandbox. It renders a dirty-puddle / bioluminescent reef ecosystem where bounded organisms forage, shelter, hunt, court, reproduce, die, leave eggs, recover from bottlenecks, inherit behavior hints, and accumulate evidence under environmental pressure.
 
-## Run
+This is an active research prototype and local demo surface. The goal is not realistic fish biology. The goal is to make agent workflow evolution legible: behavior, morphology, evidence, lineage, and environment all participate in the loop.
+
+## Inspiration and attribution
+
+Aquagenesys was inspired by Dr. Daniel Hulme's 2003 master's thesis project, ALIS - Artificial Life Intelligence Simulator - a virtual fish tank exploring artificial life and intelligence. This project is an homage to that idea, not a copy, continuation, or reverse-engineering of ALIS. I do not have access to ALIS source code or implementation details, and Aquagenesys was built independently as a modern recursive agentic workflow sandbox: a bounded artificial ecology where agents survive, reproduce, inherit behavior hints, accumulate evidence, and evolve under environmental pressure.
+
+## What this is
+
+Aquagenesys is a working local simulation and viewer for experimenting with bounded agentic systems. Organisms act as small local agents with survival and reproduction pressure. The puddle environment supplies constraints, affordances, resource gradients, failure modes, recovery paths, and lineage history. The system is less about making realistic fish and more about exploring how agent workflows can evolve when behavior, morphology, evidence, and environment are all part of the same feedback loop.
+
+## What this is not
+
+- It is not a biological realism simulator.
+- It is not an implementation, reconstruction, continuation, or reverse-engineering of ALIS.
+- It does not depend on LLM calls to keep the ecology alive.
+- It does not claim that organisms are cognitively rich planners.
+- Current behavior is a bounded scorer over biological actions, not a full autonomous planning system.
+- Skill evidence in v0.4.1 is observational; v0.4.2 is intended to strengthen this into evidence-governed inheritance.
+
+## Current capabilities
+
+- Dirty-puddle / reef ecology with oxygen, pH, food, plankton, toxins, shelter, currents, waste, and decomposition.
+- Adults, eggs, dormancy, hatching, death, extinction, and egg-bank recovery.
+- Biological genomes with inherited traits and life-history strategy.
+- Modular morphology affordances for body plans, feeding, movement, armor, toxins, sensory range, costs, and viability.
+- Affordance-aware behavior that scores biological actions against local context.
+- Bounded instruction inheritance and taught behavior hints.
+- Skill-use and descendant-outcome evidence tracking.
+- Genealogy explorer for biology and behavior inheritance.
+- Deterministic lineage story renderer that explains survival, inheritance, attempts, losses, and persistence without model calls.
+- Optional bounded AI deliberation through the canonical `core.llm` interface; model output becomes short-lived intent and never controls the tick loop directly.
+- FastAPI local viewer with compact `/api/frame`, full `/api/state`, and `/api/control`.
+- Canvas reef UI with selected-organism portrait rendering.
+
+## Demo quickstart
 
 ```bash
 python3 -m venv .venv
@@ -13,33 +47,61 @@ python -m aquagenesys.web.app --host 127.0.0.1 --port 8765
 
 Open `http://127.0.0.1:8765`.
 
-The default model endpoint is OpenAI-compatible Lexi on `http://127.0.0.1:8008/v1` with model name `Lexi`. Disable model calls for deterministic local runs with:
+For deterministic local runs without model calls:
 
 ```bash
-python -m aquagenesys.web.app --no-deliberation
+python -m aquagenesys.web.app --host 127.0.0.1 --port 8765 --no-deliberation
 ```
 
-## Documentation
+Useful local endpoints:
 
-- `docs/README.md` is the documentation index.
-- `docs/decisions/` contains chronological architecture decisions.
-- `reports/README.md` indexes generated implementation and validation reports.
-- `reports/repo_cleanup_2026-05-28.md` records the latest conservative repository cleanup.
+- `GET /api/state` - full ecology, organism, dashboard, genealogy, morphology, behavior, and lineage-story state.
+- `GET /api/frame` - compact render/update payload for the Canvas viewer.
+- `POST /api/control` - reset, speed, randomize, and AI deliberation controls.
 
-## v0.3.9 Architecture
+The default optional model endpoint is OpenAI-compatible Lexi on `http://127.0.0.1:8008/v1` with model name `Lexi`. The simulation remains functional when that endpoint is absent or deliberation is disabled.
+
+## What to watch for in the demo
+
+- Watch organisms forage, shelter, hunt, court, reproduce, and die.
+- Click an organism to inspect its morphology, affordances, behavior rationale, physiology, lineage, and portrait.
+- Compare organisms and notice that morphology changes what actions are cheap, plausible, or risky.
+- Watch lineage persistence, extinction, egg-bank reserves, and dormant recovery.
+- Observe that the ecology can recover without debug founder reseeding.
+- Treat optional AI deliberation as bounded and nonblocking; it is visible in telemetry but not required for survival.
+- Read the lineage story cards for cautious, evidence-backed explanations of what persisted and what failed.
+
+## Architecture
+
+The CPU owns the puddle chemistry and physics. Fish are bounded local agents that mostly act through reflexes and affordance-aware behavior, with sparse optional AI deliberation routed through the local OpenAI-compatible endpoint when budget and pressure allow.
 
 - `aquagenesys.environment.PuddleEnvironment` owns deterministic 2D world fields: temperature, oxygen, pH, turbidity, nutrients, light, currents, shelter, substrate, obstacles, food, plankton, waste, toxins, decomposition/detritus, reproduction support, population pressure, and ecological balance.
 - `aquagenesys.agents.FishAgent` owns fish identity, body state, position, energy, hunger, fear, stress, health, reproductive drive, maturity/fertility state, memory, recent outcomes, model-call budget, and genome strategy.
-- `aquagenesys.agents.FishGenome` owns inherited procedural phenotype and life-history traits, including dormancy bias, egg viability horizon, parthenogenesis alleles, parthenogenesis bias, and mutation load.
-- `aquagenesys.agents.instructions.BehaviorInstructionGenome` owns bounded behavioral priors: risk posture, forage/threat/social/reproduction/exploration/energy strategies, teaching style, memory bias, model deliberation bias, skill slots, and mutation rate.
-- `aquagenesys.agents.instructions.TaughtSkill` represents bounded parent-transmitted behavior hints. Skills are structured, short-lived by generation TTL, schema-validated, and cannot request shell, file, network, repo, server, tool, code-editing, teleport, death-disabling, or energy-bypass behavior.
-- `aquagenesys.agents.life_history.LifeHistoryProfile` derives maturity age, fertility window, expected lifespan, reproduction interval, clutch size, offspring investment, brood strategy, egg strategy, dormancy behavior, and clonal reproduction pressure from genome/phenotype.
+- `aquagenesys.agents.FishGenome` owns inherited phenotype, life-history traits, and modular morphology.
+- `aquagenesys.agents.morphology.MorphologyGenome` maps inherited body loci into primitive affordances and costs.
+- `aquagenesys.agents.behavior` turns local perception, morphology affordances, physiology, inherited priors, and taught skills into bounded action candidates.
+- `aquagenesys.agents.instructions.BehaviorInstructionGenome` owns bounded behavioral priors and taught skills. Skills are structured, short-lived by generation TTL, schema-validated, and cannot request shell, file, network, repo, server, tool, code-editing, teleport, death-disabling, or energy-bypass behavior.
 - `aquagenesys.simulation.egg.EggEntity` represents independent eggs/embryos. Eggs carry both biological genome and instruction seed, persist after parent death, may enter dormancy, decay under hostile chemistry, and hatch under suitable low-pressure conditions.
-- `aquagenesys.agents.FishAgent` also owns smoothed locomotion state: heading, turn rate, swim phase, tail beat, body wave, stride, and current speed.
 - `aquagenesys.agents.FishDeliberationController` uses `core.llm.LLMClient` and `prompts/tasks/fish_deliberation_v0.3.md`; environment ticks never depend on model calls.
-- Model deliberation runs out of the viewer request path. Successful model actions become short-lived fish intents with a TTL; failures remain visible in model telemetry and events.
+- `aquagenesys.web.app` serves the FastAPI API and static Canvas viewer.
 
-## Instruction Inheritance
+Per fish tick:
+
+```text
+1. Sense local environment
+2. Update internal state and lifecycle timers
+3. Build affordance-aware behavior candidates
+4. Let urgent reflexes override when needed
+5. Optionally queue nonblocking AI deliberation when budget and pressure allow
+6. Select action
+7. Apply action to fish and environment
+8. Attempt energy-costed reproduction if gates pass
+9. Validate and inherit bounded offspring instruction seeds when reproduction succeeds
+10. Update eggs/embryos and hatch viable eggs
+11. Record outcome, lifecycle, behavior evidence, and compact lineage snapshots
+```
+
+## Instruction inheritance
 
 Parent organisms can influence offspring behavior priors, but only through bounded schemas:
 
@@ -63,9 +125,9 @@ Instruction policy affects behavior modestly:
 
 Instruction policy does not alter body mechanics, speed caps, energy accounting, reproduction rules, or death rules.
 
-## Reproduction Model
+## Reproduction and recovery
 
-Reproduction is no longer a single direct spawn. Mature fish pay energy into a brood. Life-history traits determine clutch size, reproduction cooldown, offspring investment, and whether the brood becomes live juveniles, eggs, or a mixed clutch. Normal reproduction requires mate contact with a compatible local organism. Offspring and eggs inherit biological genome plus a bounded instruction seed.
+Reproduction is not a single direct spawn. Mature fish pay energy into a brood. Life-history traits determine clutch size, reproduction cooldown, offspring investment, and whether the brood becomes live juveniles, eggs, or a mixed clutch. Normal reproduction requires mate contact with a compatible local organism. Offspring and eggs inherit biological genome plus a bounded instruction seed.
 
 Some genomes carry a rare facultative parthenogenesis locus. A singleton fish without alleles cannot magically reproduce. A mature, healthy, mate-isolated fish with alleles may attempt an emergency clonal egg clutch, but the attempt is stochastic, energy-costed, usually egg-based, and carries viability/mutation-load penalties.
 
@@ -78,75 +140,38 @@ adults restored -> biosphere_state=active
 no adults + no viable eggs -> biosphere_state=extinct
 ```
 
-Deaths and waste now feed local decomposition/detritus, nutrients, food, and plankton. Moderate detritus can support rebound; excessive waste can still depress oxygen or increase toxins.
+Deaths and waste feed local decomposition/detritus, nutrients, food, and plankton. Moderate detritus can support rebound; excessive waste can still depress oxygen or increase toxins.
 
 ## Viewer
 
 The FastAPI viewer exposes `/api/state`, compact `/api/frame`, and `/api/control`. The browser polls `/api/frame` for lightweight movement and lifecycle metrics, interpolates fish motion with `requestAnimationFrame`, and keeps `/api/state` at a lower cadence for full environment fields.
 
-v0.3.9 keeps the ecology observatory layout, recovery evidence, and genealogy explorer, then adds a lineage story renderer:
-
-- the puddle canvas remains the dominant visual surface
-- the right sidebar focuses on hovered/selected fish and optional two-fish comparison
-- the below-puddle observatory shows the ecology narrator, population/lifecycle dashboard, lineage/policy/teaching summaries, event timeline, and diagnostics
-- the recovery evidence panel explains whether the puddle is stable, declining, bottlenecked, dormant, rebounding, recovering, or extinct
-- the genealogy explorer shows biology and behavior inheritance side by side for selected lineages
-- the lineage story renderer answers who survived, what they inherited, what changed, what they tried, what killed others, and why the lineage persisted
-- the AI deliberation control describes bounded AI reflections without requiring the viewer to know the internal Lexi/Qwen runtime name
-- `/api/state` includes a dashboard-friendly `aquagenesys.dashboard.v2` object
-- `/api/state` includes a bounded `aquagenesys.genealogy.v1` object
-- `/api/state` includes a bounded `aquagenesys.lineage_story.v1` object
-- `/api/frame` remains compact and does not carry dashboard payloads
+- The puddle canvas remains the dominant visual surface.
+- The right sidebar focuses on hovered/selected fish and optional two-fish comparison.
+- The below-puddle observatory shows the ecology narrator, population/lifecycle dashboard, recovery evidence, morphology affordances, affordance-aware behavior, lineage/policy/teaching summaries, inherited behavior evidence, event timeline, and diagnostics.
+- The genealogy explorer shows biology and behavior inheritance side by side for selected lineages.
+- The lineage story renderer answers who survived, what they inherited, what changed, what they tried, what killed others, and why the lineage persisted.
+- The AI deliberation control describes bounded AI reflections without requiring the viewer to know the internal Lexi/Qwen runtime name.
+- `/api/state` includes dashboard, morphology, behavior, genealogy, and lineage story payloads.
+- `/api/frame` remains compact and does not carry dashboard/story payloads.
 
 Hover a fish for a quick preview. Click to focus one fish. Ctrl-click or command-click a second fish to compare body, lifecycle, policy, strategy, teaching history, current action, and relationship signals such as shared lineage, shared policy, feeding role, and proximity.
 
-The ecology narrator is deterministic and grounded in current state. It summarizes population pressure, egg-bank resilience, recovery phase, resource rebound, dominant lineages, policy prevalence, teaching activity, and recent events without model calls or freeform fiction.
+## Recovery assays
 
-The genealogy explorer is deliberately bounded. It sends compact live-adult, egg, and sampled-dead-ancestor nodes with parent links, biological signatures, phenotype hashes, instruction policy hashes, taught-skill counts, patch counts, and recovery roles. It does not send raw runtime memory or unbounded genome dumps.
-
-The lineage story renderer is also bounded and rule-based. It does not call a model. It composes short evidence-backed story cards from genealogy nodes, recovery dashboard signals, recent events, reproduction gates, instruction inheritance records, and compact dead-agent summaries. It is intended to make the recursive-agent thesis legible without reading JSONL logs:
-
-```text
-Who survived?
-What did they inherit?
-What changed?
-What did they try?
-What killed the others?
-Why did this lineage persist?
-```
-
-## Recovery Assays
-
-v0.3.7 adds programmatic seeded recovery assays under `evals/recovery_assays.py`. These measure bottleneck recovery, egg-bank resilience, reproduction gates, density/crowding sanity, resource rebound, behavior-policy payoff, and optional AI deliberation. They are intended to prevent tuning from being driven by one dramatic visual run.
+Programmatic seeded recovery assays live under `evals/recovery_assays.py`. They measure bottleneck recovery, egg-bank resilience, reproduction gates, density/crowding sanity, resource rebound, behavior-policy payoff, and optional AI deliberation.
 
 Run them directly with:
 
 ```bash
 python evals/recovery_assays.py --json
-python evals/recovery_assays.py --write-report --report-date 2026-05-23
 ```
 
-The current assay contract explicitly checks that recovery does not use debug founder reseeding, egg-bank recovery does not create instant adults, low global population is not treated as global overcrowding, behavior policies change choices without changing physical capability, and live Lexi/Qwen success is not required.
-
-Per fish tick:
-
-```text
-1. Sense local environment
-2. Update internal state and lifecycle timers
-3. Run reflex rules
-4. Run habit policy
-5. Optionally deliberate through Lexi if budget and pressure allow
-6. Select action
-7. Apply action to fish and environment
-8. Attempt energy-costed reproduction if gates pass
-9. Validate and inherit bounded offspring instruction seeds when reproduction succeeds
-10. Update eggs/embryos and hatch viable eggs
-11. Record outcome, lifecycle, and compact code-lineage snapshots to archive
-```
+The assay contract checks that recovery does not use debug founder reseeding, egg-bank recovery does not create instant adults, low global population is not treated as global overcrowding, behavior policies change choices without changing physical capability, and live Lexi/Qwen success is not required.
 
 ## Archives
 
-Fish state, memory, eggs, lifecycle events, instruction patch decisions, teaching events, offspring instruction inheritance, and compact agent code snapshots are externalized as JSONL under `/tmp/aquagenesys-v03` by default. Records include `run_id` so append-only archives can be segmented without mixing older runs.
+Fish state, memory, eggs, lifecycle events, instruction patch decisions, teaching events, offspring instruction inheritance, skill evidence, and compact agent code snapshots are externalized as JSONL under `/tmp/aquagenesys-v03` by default. Records include `run_id` so append-only archives can be segmented without mixing older runs.
 
 Useful files:
 
@@ -157,17 +182,33 @@ Useful files:
 ## Validation
 
 ```bash
-python -m pytest -q tests
-python evals/runner.py --check
-python evals/runner.py
+python3 -m pytest -q tests
+python3 evals/runner.py --check
+python3 evals/runner.py
+python3 evals/recovery_assays.py --json
 make lint
 node --check aquagenesys/web/static/app.js
+node --check aquagenesys/web/static/renderer_canvas.js
+node --check aquagenesys/web/static/creature_portrait.js
 ```
+
+## Documentation
+
+- `docs/README.md` is the documentation index.
+- `docs/decisions/` contains chronological architecture decisions.
+- `reports/README.md` indexes generated implementation and validation reports.
+- `reports/repo_cleanup_2026-05-28.md` records the latest conservative repository cleanup.
 
 ## Configuration
 
 Runtime settings are centralized in `core/config.py` and may be provided with `AQUAGENESYS_*` variables. See `.env.example` for the full surface.
 
-## Known Limitations
+## Known limitations
 
-Aquagenesys still uses compact compatibility heuristics for mate contact rather than a full sexual genetics model. Eggs model viability and dormancy but not detailed embryology. Instruction inheritance is structured and compact rather than a full natural-language agent-program evolution system. v0.3.9 adds bounded genealogy and story surfaces, but not a full interactive graph database, complete species tree, or model-written narrative.
+- Behavior is a bounded heuristic scorer, not a general planner.
+- Skill evidence in v0.4.1 is observational and does not prove causality.
+- The system does not implement full sexual genetics or detailed embryology.
+- Procedural art is polished enough for demo use but not final concept art.
+- The ecology is designed for agentic systems metaphor and experimentation, not biological realism.
+- There is no full interactive graph database, complete species tree, or model-written narrative.
+- No explicit license file is currently included; treat the repository as view-only until a license is selected.
