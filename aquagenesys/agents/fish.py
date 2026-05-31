@@ -28,6 +28,14 @@ def unit(dx: float, dy: float) -> tuple[float, float]:
     return (dx / magnitude, dy / magnitude)
 
 
+def _tool_viability(score: float) -> str:
+    if score >= 0.62:
+        return "high"
+    if score >= 0.34:
+        return "medium"
+    return "low"
+
+
 TAU = pi * 2.0
 
 
@@ -943,9 +951,109 @@ class FishAgent:
             "locomotion": self.locomotion_payload(),
             "decision": self.last_decision.payload(),
             "behavior": self.last_behavior_rationale,
+            "agent_loop": self.agent_loop_payload(),
             "active_intent": self.model_intent.payload() if self.model_intent else None,
             "last_model_decision": self.last_model_decision.payload() if self.last_model_decision else None,
             "perception": self.last_perception.payload() if self.last_perception else None,
+        }
+
+    def agent_loop_payload(self) -> dict[str, Any]:
+        behavior = self.last_behavior_rationale or {}
+        candidates = list(behavior.get("candidate_summary", []) or [])
+        selected_action = str(behavior.get("current_action", "") or self.last_decision.kind or "drift")
+        selected_candidate = next((item for item in candidates if item.get("action") == selected_action), candidates[0] if candidates else {})
+        rejected = [item for item in candidates if item.get("action") != selected_action][:3]
+        phenotype = self.genome.phenotype_payload(compact=True)
+        affordances = self.morphology_affordances.compact_payload()
+        inherited = [item for item in self.skill_inheritance if item.get("status") == "inherited"]
+        suppressed = [
+            item
+            for item in self.skill_inheritance
+            if str(item.get("status", "")).startswith("suppressed") or item.get("status") == "observed_only"
+        ]
+        return {
+            "schema": "aquagenesys.agent_loop.v1",
+            "agent": {
+                "id": self.fish_id,
+                "lineage_id": self.lineage_id,
+                "goals": ["survive", "reproduce"],
+                "state": {
+                    "energy": round(self.energy, 3),
+                    "hunger": round(self.hunger, 3),
+                    "stress": round(self.stress, 3),
+                    "fear": round(self.fear, 3),
+                    "health": round(self.health, 3),
+                    "maturity_state": self.maturity_state,
+                    "fertility_state": self.fertility_state,
+                },
+            },
+            "capability_surface": {
+                "functional_affordances": {
+                    key: affordances[key]
+                    for key in (
+                        "reach",
+                        "grip",
+                        "bite_force",
+                        "suction_force",
+                        "filter_rate",
+                        "armor_protection",
+                        "toxin_payload",
+                        "sensory_range",
+                        "drag",
+                        "oxygen_cost",
+                        "feeding_throughput",
+                        "viability_index",
+                    )
+                    if key in affordances
+                },
+                "visual_traits": {
+                    key: phenotype.get(key)
+                    for key in ("shape", "tail", "pattern", "color", "accent_color")
+                    if key in phenotype
+                },
+                "boundary": "Functional affordances affect scoring/cost/risk; visual traits are rendering signals unless separately represented as affordances.",
+            },
+            "available_behavior_tools": [
+                {
+                    "action": item.get("action", "unknown"),
+                    "score": item.get("score", 0.0),
+                    "cost": item.get("cost", 0.0),
+                    "risk": item.get("risk", 0.0),
+                    "upside": item.get("upside", 0.0),
+                    "viability": _tool_viability(float(item.get("score", 0.0) or 0.0)),
+                    "reason": item.get("reason", ""),
+                }
+                for item in candidates[:5]
+            ],
+            "harness_decision": {
+                "selected_behavior": selected_action,
+                "source": str(behavior.get("source", "") or self.last_decision.source),
+                "score": selected_candidate.get("score"),
+                "primary_reasons": list(behavior.get("context_tags", []) or [])[:3]
+                + list(behavior.get("affordance_tags", []) or [])[:3]
+                + list(behavior.get("policy_influence", []) or [])[:2]
+                + list(behavior.get("skill_influence", []) or [])[:2],
+                "selected_reason": str(behavior.get("action_reason", "") or self.last_decision.reason),
+                "rejected_alternatives": [
+                    {
+                        "action": item.get("action", "unknown"),
+                        "score": item.get("score", 0.0),
+                        "reason": item.get("reason", ""),
+                        "mismatch_warnings": list(item.get("mismatch_warnings", []) or [])[:2],
+                    }
+                    for item in rejected
+                ],
+            },
+            "evidence_memory": {
+                "recent_outcomes": list(self.recent_outcomes[-5:]),
+                "taught_skill_count": len(self.taught_skills),
+                "inherited_hints": [item for item in inherited[:4]],
+                "suppressed_hints": [item for item in suppressed[:4]],
+                "claim_boundary": "Evidence is observational and gates bounded hints; it does not prove causality.",
+            },
+            "recursive_channel": {
+                "mechanism": "behavior attempts -> outcome evidence -> eligibility/confidence -> inherited or suppressed hint -> descendant scoring bias",
+            },
         }
 
     def frame_payload(self) -> dict[str, Any]:

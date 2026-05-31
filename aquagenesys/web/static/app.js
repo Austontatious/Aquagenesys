@@ -1157,14 +1157,18 @@ function updateInspector() {
   const phenotype = phenotypeFor(fish);
   const morphology = morphologyFor(fish, phenotype);
   const fullFish = findStateFish(fish.id) || fish;
+  const agentLoop = fullFish.agent_loop || {};
   updateCreaturePortrait(mergeFishForPortrait(fish, fullFish));
   const affordances = fullFish.affordances || fullFish.morphology?.affordances || {};
   const behavior = behaviorFor(fish);
+  document.getElementById("fishAgentGoal").textContent = summarizeAgentGoal(agentLoop, fish);
   document.getElementById("fishPhenotype").textContent = `${phenotype.shape} / ${phenotype.tail} / ${phenotype.pattern}`;
   document.getElementById("fishTraits").textContent = `fin ${Number(phenotype.fin_span).toFixed(2)} camo ${Number(phenotype.camouflage).toFixed(2)}`;
+  document.getElementById("fishVisualTraits").textContent = summarizeVisualTraits(agentLoop, phenotype);
   document.getElementById("fishMorphology").textContent =
     `${labelize(morphology.label)} / ${String(morphology.morphology_hash || "-").slice(-10)}`;
   document.getElementById("fishAffordances").textContent = summarizeAffordances(affordances);
+  document.getElementById("fishCapabilitySurface").textContent = summarizeCapabilitySurface(agentLoop, affordances);
   document.getElementById("fishCosts").textContent = summarizeCosts(affordances);
   const locomotion = locomotionFor(fish);
   document.getElementById("fishMotion").textContent = `spd ${Number(locomotion.speed).toFixed(2)} turn ${Number(locomotion.turn_rate).toFixed(2)}`;
@@ -1183,6 +1187,9 @@ function updateInspector() {
   document.getElementById("fishTeaching").textContent =
     `${String(instruction.teaching_style || "-").replaceAll("_", "-")} skills ${instruction.skill_count ?? (fish.taught_skills || []).length ?? 0} acc ${instruction.accepted_patches ?? fish.instruction_lineage?.accepted_patch_ids?.length ?? 0} rej ${instruction.rejected_patches ?? fish.instruction_lineage?.rejected_patch_ids?.length ?? 0}`;
   document.getElementById("fishSkillInheritance").textContent = summarizeSkillInheritance(fullFish);
+  document.getElementById("fishAvailableTools").textContent = summarizeAvailableTools(agentLoop, behavior);
+  document.getElementById("fishHarnessDecision").textContent = summarizeHarnessDecision(agentLoop, behavior, fish);
+  document.getElementById("fishEvidenceMemory").textContent = summarizeEvidenceMemory(agentLoop, fullFish);
   document.getElementById("fishDecision").textContent = `${fish.decision.source}: ${fish.decision.kind}`;
   document.getElementById("fishBehavior").textContent =
     `${labelize(behavior.current_action || fish.decision.kind || "drift")}: ${behavior.action_reason || fish.decision.reason || "no rationale recorded"}`;
@@ -1281,6 +1288,65 @@ function summarizeTags(tags) {
 function summarizeCandidates(candidates) {
   const compact = (candidates || []).slice(0, 3).map((item) => `${labelize(item.action)} ${Number(item.score || 0).toFixed(2)}`);
   return compact.length ? compact.join(" / ") : "-";
+}
+
+function summarizeAgentGoal(agentLoop, fish) {
+  const goals = agentLoop?.agent?.goals || ["survive", "reproduce"];
+  const state = agentLoop?.agent?.state || {};
+  const energy = state.energy ?? fish.energy;
+  const stress = state.stress ?? fish.stress;
+  const maturity = state.maturity_state ?? fish.maturity_state ?? "-";
+  return `${goals.map(labelize).join(" / ")}; E ${Number(energy || 0).toFixed(1)} S ${Number(stress || 0).toFixed(2)} ${labelize(maturity)}`;
+}
+
+function summarizeVisualTraits(agentLoop, phenotype) {
+  const visual = agentLoop?.capability_surface?.visual_traits || phenotype || {};
+  const bits = [visual.shape, visual.tail, visual.pattern].filter(Boolean).map(labelize);
+  const colors = [visual.color, visual.accent_color].filter(Boolean).join(" / ");
+  return `${bits.join(" / ") || "-"}${colors ? `; render colors ${colors}` : ""}`;
+}
+
+function summarizeCapabilitySurface(agentLoop, affordances) {
+  const functional = agentLoop?.capability_surface?.functional_affordances || affordances || {};
+  const entries = [
+    ["filter", functional.filter_rate],
+    ["bite", functional.bite_force],
+    ["reach", functional.reach],
+    ["armor", functional.armor_protection],
+    ["drag", functional.drag],
+    ["oxygen", functional.oxygen_cost],
+  ]
+    .filter((item) => item[1] !== undefined)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 4);
+  return entries.length ? entries.map(([label, value]) => `${label} ${Number(value).toFixed(2)}`).join(" / ") : "-";
+}
+
+function summarizeAvailableTools(agentLoop, behavior) {
+  const tools = agentLoop?.available_behavior_tools || behavior.candidate_summary || [];
+  const compact = tools.slice(0, 4).map((item) => {
+    const viability = item.viability ? `${labelize(item.viability)} ` : "";
+    return `${labelize(item.action)} ${viability}${Number(item.score || 0).toFixed(2)}`;
+  });
+  return compact.length ? compact.join(" / ") : "-";
+}
+
+function summarizeHarnessDecision(agentLoop, behavior, fish) {
+  const harness = agentLoop?.harness_decision || {};
+  const selected = harness.selected_behavior || behavior.current_action || fish.decision?.kind || "drift";
+  const score = harness.score !== undefined && harness.score !== null ? ` score ${Number(harness.score || 0).toFixed(2)}` : "";
+  const reasons = (harness.primary_reasons || [...(behavior.context_tags || []), ...(behavior.affordance_tags || [])]).slice(0, 4).map(labelize);
+  const rejected = (harness.rejected_alternatives || []).slice(0, 2).map((item) => `${labelize(item.action)} ${Number(item.score || 0).toFixed(2)}`);
+  return `${labelize(selected)}${score}${reasons.length ? `; ${reasons.join(" / ")}` : ""}${rejected.length ? `; rejected ${rejected.join(" / ")}` : ""}`;
+}
+
+function summarizeEvidenceMemory(agentLoop, fish) {
+  const memory = agentLoop?.evidence_memory || {};
+  const inherited = memory.inherited_hints?.length ?? (fish.skill_inheritance || []).filter((item) => item.status === "inherited").length;
+  const suppressed = memory.suppressed_hints?.length ?? (fish.skill_inheritance || []).filter((item) => String(item.status || "").startsWith("suppressed") || item.status === "observed_only").length;
+  const outcomes = (memory.recent_outcomes || fish.recent_outcomes || []).slice(-3).map(labelize);
+  const skillCount = memory.taught_skill_count ?? (fish.taught_skills || []).length ?? 0;
+  return `${skillCount} hints; inherited ${inherited} suppressed ${suppressed}${outcomes.length ? `; recent ${outcomes.join(" / ")}` : ""}`;
 }
 
 function summarizeAffordances(affordances) {

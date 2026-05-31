@@ -1,0 +1,49 @@
+{
+  "schema": "aquagenesys.report.recursive_agent_metaphor_closure.v1",
+  "date": "2026-05-31",
+  "branch": "main",
+  "starting_head": "6eece76",
+  "public_claim_status": "supported_with_explicit_boundaries",
+  "concept_map": {
+    "agent": "fish / organism",
+    "capability_surface": "morphology affordances",
+    "tools_actions": "bounded behavior candidates",
+    "harness_orchestration": "behavior selector",
+    "environment_evaluator": "puddle ecology",
+    "memory": "skill and lineage evidence",
+    "recursive_improvement_channel": "inheritance",
+    "long_horizon_signal": "lineage persistence"
+  },
+  "boundaries": [
+    "no AGI claim",
+    "no arbitrary source-code rewriting",
+    "no open-ended tool invention",
+    "no biological realism claim",
+    "observational evidence, not causal proof"
+  ],
+  "api_changes": {
+    "state_fish_agent_loop": "aquagenesys.agent_loop.v1",
+    "frame_changed": false
+  },
+  "morphology_behavior_mapping": [
+    {"behavior": "filter_feed", "affordances": ["filter_rate", "suction_force", "oxygen_cost", "drag"], "effect": "scoring/cost/risk"},
+    {"behavior": "graze", "affordances": ["scrape_rate", "gut_capacity", "drag"], "effect": "scoring/cost"},
+    {"behavior": "scavenge", "affordances": ["reach", "grip", "tissue_vulnerability"], "effect": "scoring/risk"},
+    {"behavior": "anchor_feed", "affordances": ["reach", "filter_rate", "scrape_rate", "drag"], "effect": "scoring/cost"},
+    {"behavior": "strike", "affordances": ["bite_force", "strike_impulse", "tissue_vulnerability"], "effect": "scoring/risk"},
+    {"behavior": "hunt", "affordances": ["bite_force", "drag", "max_speed"], "effect": "scoring/cost"},
+    {"behavior": "chemical_defense", "affordances": ["toxin_payload", "toxin_delivery", "toxin_self_cost"], "effect": "scoring/cost/risk"},
+    {"behavior": "flee", "affordances": ["drag", "oxygen_cost", "armor_protection", "tissue_vulnerability"], "effect": "cost/risk"},
+    {"behavior": "court", "affordances": ["reproduction_cost"], "effect": "cost"},
+    {"behavior": "explore", "affordances": ["sensory_range", "oxygen_cost", "drag"], "effect": "scoring/cost/risk"}
+  ],
+  "test_claims": [
+    "morphology affects behavior scoring or selection",
+    "visual traits are separate from functional affordances",
+    "behavior candidates expose score/reason/rejected alternatives",
+    "outcomes become skill evidence",
+    "evidence gates skill inheritance",
+    "inherited hints affect descendant behavior scoring",
+    "lineage story avoids causal overclaiming"
+  ]
+}

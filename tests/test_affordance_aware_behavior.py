@@ -298,7 +298,20 @@ def test_state_exposes_bounded_behavior_rationale_without_frame_bloat() -> None:
     first = state["behavior"]["organisms"][0]
     assert first["current_action"]
     assert first["candidate_summary"]
+    organism = state["fish"][0]
+    loop = organism["agent_loop"]
+    assert loop["schema"] == "aquagenesys.agent_loop.v1"
+    assert loop["agent"]["goals"] == ["survive", "reproduce"]
+    assert loop["capability_surface"]["functional_affordances"]
+    assert loop["capability_surface"]["visual_traits"]
+    assert "accent_color" in loop["capability_surface"]["visual_traits"]
+    assert "color" not in loop["capability_surface"]["functional_affordances"]
+    assert loop["available_behavior_tools"]
+    assert loop["harness_decision"]["selected_behavior"]
+    assert loop["harness_decision"]["rejected_alternatives"]
+    assert loop["evidence_memory"]["claim_boundary"]
     assert "behavior" not in frame
+    assert "agent_loop" not in frame["fish"][0]
     assert "behavior" not in frame["fish"][0]
     assert frame["schema"] == "aquagenesys.frame.v3"
     assert len(str(frame)) < len(str(state)) * 0.55

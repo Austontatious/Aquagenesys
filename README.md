@@ -12,12 +12,32 @@ Aquagenesys was inspired by Dr. Daniel Hulme's 2003 master's thesis project, ALI
 
 Aquagenesys is a working local simulation and viewer for experimenting with bounded agentic systems. Organisms act as small local agents with survival and reproduction pressure. The puddle environment supplies constraints, affordances, resource gradients, failure modes, recovery paths, and lineage history. The system is less about making realistic fish and more about exploring how agent workflows can evolve when behavior, morphology, evidence, and environment are all part of the same feedback loop.
 
+## Recursive agent metaphor
+
+Aquagenesys uses an artificial ecology to make a bounded recursive-agent loop visible:
+
+- Fish / organism = agent.
+- Morphology = capability surface.
+- Behaviors = bounded tools/actions.
+- Behavior selector = harness/orchestration layer.
+- Puddle/ecology = evaluator/environment.
+- Skill and lineage evidence = memory.
+- Inheritance = recursive improvement channel.
+- Lineage persistence = long-horizon success signal.
+
+In real agent systems, the boundary between agent and harness is often blurry. Aquagenesys makes that boundary visible by splitting each organism into a capability surface, a bounded action set, and a behavior-selection layer. The fish is the agent; the behavior selector is the harness-like layer that mediates between goals, affordances, and environmental pressure.
+
+Tool discovery is modeled as affordance-mediated action discovery. The global behavior library is bounded, but each organism's morphology and state determine which actions are viable, useful, or worth selecting. "Tools" means bounded biological actions such as graze, hunt, shelter, court, rest, scavenge, chemical defense, and filter-feed.
+
+Aquagenesys does not claim open-ended self-modifying intelligence. The organisms do not rewrite arbitrary source code or invent unbounded new tools. Recursive improvement is modeled as a constrained loop: actions produce outcomes, outcomes become evidence, evidence affects inheritance or behavior priors, and descendants are tested again by the environment.
+
 ## What this is not
 
 - It is not a biological realism simulator.
 - It is not an implementation, reconstruction, continuation, or reverse-engineering of ALIS.
 - It does not depend on LLM calls to keep the ecology alive.
 - It does not claim that organisms are cognitively rich planners.
+- It does not claim open-ended tool creation or arbitrary source-code rewriting.
 - Current behavior is a bounded scorer over biological actions, not a full autonomous planning system.
 - Skill evidence remains observational, but v0.4.2 uses deterministic evidence gates to decide which taught hints become heritable.
 
@@ -28,6 +48,7 @@ Aquagenesys is a working local simulation and viewer for experimenting with boun
 - Biological genomes with inherited traits and life-history strategy.
 - Modular morphology affordances for body plans, feeding, movement, armor, toxins, sensory range, costs, and viability.
 - Affordance-aware behavior that scores biological actions against local context.
+- Bounded behavior/action library exposed as viable or low-viability tools per organism.
 - Bounded instruction inheritance and taught behavior hints.
 - Evidence-governed skill inheritance with confidence, evidence counts, and suppression reasons.
 - Skill-use and descendant-outcome evidence tracking.

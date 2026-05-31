@@ -4,6 +4,7 @@ from dataclasses import replace
 from random import Random
 
 from aquagenesys.agents import BehaviorInstructionGenome, TaughtSkill
+from aquagenesys.agents.behavior import build_behavior_decision
 from aquagenesys.simulation import AquagenesysSimulation, SimulationConfig
 
 
@@ -227,4 +228,33 @@ def test_lineage_story_suppresses_unsupported_skill_without_overclaiming() -> No
     assert "not inherited because" in answer_text or "suppressed" in answer_text
     for banned in ("caused", "guaranteed", "proved", "learned intelligently"):
         assert banned not in answer_text
+    sim.close()
+
+
+def test_inherited_hint_affects_descendant_behavior_scoring() -> None:
+    sim = _sim(748)
+    sim.rng = LowRandom(748)
+    parent, skill = _parent_with_skill(sim)
+    mate = sim.fish[1]
+    _add_evidence(sim, parent, skill, ["helped_possible", "helped_possible"])
+    _make_reproductive(parent, mate, sim)
+    result = sim._maybe_reproduce(parent, _good_perception(sim, parent))
+    assert result.eggs or result.newborns
+    target = result.eggs[0] if result.eggs else result.newborns[0]
+    child = sim._hatch_egg(target, sim.environment.sample(target.x, target.y).payload()) if result.eggs else result.newborns[0]
+    assert child.taught_skills
+
+    perception = sim._sense(child)
+    perception.resource_score = 0.88
+    perception.sample["food"] = 0.76
+    perception.sample["plankton"] = 0.82
+    with_hint = build_behavior_decision(child, perception, LowRandom(100), population=4)
+    without_hint_child = replace(child, taught_skills=[])
+    without_hint = build_behavior_decision(without_hint_child, perception, LowRandom(100), population=4)
+
+    hinted_actions = {"forage", "filter_feed", "graze", "scavenge", "anchor_feed"}
+    hinted_with = [item for item in with_hint.candidates if item.action in hinted_actions]
+    hinted_without = [item for item in without_hint.candidates if item.action in hinted_actions]
+    assert max(item.score for item in hinted_with) > max(item.score for item in hinted_without)
+    assert with_hint.skill_influence
     sim.close()

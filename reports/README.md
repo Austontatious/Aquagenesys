@@ -8,5 +8,6 @@
 - Bioluminescent reef and portrait grammar reports are retained as generated feature evidence.
 - `repo_cleanup_2026-05-28.md` records repository cleanup classification and validation.
 - `aquagenesys_v042_evidence_governed_skill_inheritance_2026-05-31.md` records the v0.4.2 skill inheritance governance implementation.
+- `aquagenesys_v042_recursive_agent_metaphor_closure.md` records the recursive agent metaphor concept-closure audit.
 
 JSON companions are retained with Markdown reports where present.
