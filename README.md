@@ -141,6 +141,8 @@ Instruction inheritance is enabled by default with `AQUAGENESYS_INSTRUCTION_INHE
 
 In v0.4.2, taught skills are not durable just because a parent carries them. Offspring inheritance records include a status, confidence, evidence counts, source lineage, and reason. Recent positive lineage-local evidence can preserve a hint; insufficient, stale, noisy, or negative evidence suppresses it.
 
+Live LLM deliberation is action-only in the default path. The deliberation prompt can see compact taught-skill context, and a successful model intent can indirectly contribute to normal skill-use evidence if it executes an already skill-matched action, but it does not author durable skill patches or make inheritance decisions.
+
 Instruction policy affects behavior modestly:
 
 - cautious policies shelter earlier and prefer safe food

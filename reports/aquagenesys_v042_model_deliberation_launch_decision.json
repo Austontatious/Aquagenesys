@@ -1,0 +1,226 @@
+{
+  "schema": "aquagenesys.report.model_deliberation_launch_decision.v1",
+  "date": "2026-05-31",
+  "branch": "main",
+  "starting_head": "b091805",
+  "decision": {
+    "recommended_launch_mode": "--no-deliberation",
+    "model_choice_materially_affects_core_simulation_function": false,
+    "model_choice_materially_affects_demo_quality": true,
+    "smaller_model_worth_deploying_before_outreach": false,
+    "reason": "No-deliberation remains valid. Lexi and an already-running smaller Qwen3-8B endpoint timed out in fish-deliberation probes, and failed model calls did not change seeded proxy ecology outcomes."
+  },
+  "llm_role": {
+    "default_path": "optional sparse nonblocking fish deliberation",
+    "output_effect": "short-lived model_intent only",
+    "can_create_actions": false,
+    "can_create_tools": false,
+    "can_rewrite_code": false,
+    "can_bypass_physics_energy_death_or_reproduction": false,
+    "can_modify_genome_or_morphology": false,
+    "can_author_durable_skill_patches_by_default": false,
+    "model_teaching_enabled_default": false,
+    "indirect_skill_evidence_note": "A successful model intent can contribute to normal skill-use evidence only if it executes an already skill-matched action; inheritance still passes through evidence governance."
+  },
+  "endpoint_checks": [
+    {
+      "endpoint": "http://127.0.0.1:8008/v1",
+      "model": "Lexi",
+      "reachable": true,
+      "sample_timeout_seconds": 1.8,
+      "sample_result": "timeout"
+    },
+    {
+      "endpoint": "http://127.0.0.1:8008/v1",
+      "model": "Lexi",
+      "reachable": true,
+      "sample_timeout_seconds": 6.0,
+      "sample_result": "timeout"
+    },
+    {
+      "endpoint": "http://127.0.0.1:8104/v1",
+      "model": "exec",
+      "reachable": true,
+      "sample_timeout_seconds": 3.0,
+      "sample_result": "timeout"
+    },
+    {
+      "endpoint": "http://127.0.0.1:8105/v1",
+      "model": "coder",
+      "reachable": true,
+      "sample_timeout_seconds": 3.0,
+      "sample_result": "timeout"
+    }
+  ],
+  "seeded_proxy": {
+    "schema": "aquagenesys.model_launch_measurement.v1",
+    "seed": 515,
+    "width": 24,
+    "height": 18,
+    "initial_population": 8,
+    "max_population": 30,
+    "target_ticks": 80,
+    "archive_enabled": false,
+    "deliberation_interval_ticks": 36,
+    "global_deliberations_per_tick": 1,
+    "max_inflight_model_calls": 1,
+    "runs": [
+      {
+        "config_name": "no_deliberation",
+        "model_endpoint": "none",
+        "model_name": "none",
+        "deliberation_enabled": false,
+        "fish_count_start": 8,
+        "fish_count_end": 2,
+        "egg_count_end": 0,
+        "deaths": 6,
+        "reproduction_events": 0,
+        "skill_evidence_events": 0,
+        "inherited_hint_events": 0,
+        "suppressed_hint_events": 0,
+        "model_calls_attempted": 0,
+        "model_calls_succeeded": 0,
+        "model_calls_failed": 0,
+        "model_timeouts": 0,
+        "model_connection_errors": 0,
+        "model_parse_failures": 0,
+        "forbidden_or_invalid_action_attempts": 0,
+        "fallback_count": 0,
+        "mean_latency_ms": null,
+        "p95_latency_ms": null,
+        "mean_step_ms": 56.14,
+        "p95_step_ms": 79.02,
+        "dominant_actions_recent": {
+          "flee": 19,
+          "court": 13,
+          "shelter": 4
+        }
+      },
+      {
+        "config_name": "lexi_default_endpoint",
+        "model_endpoint": "http://127.0.0.1:8008/v1",
+        "model_name": "Lexi",
+        "deliberation_enabled": true,
+        "fish_count_start": 8,
+        "fish_count_end": 2,
+        "egg_count_end": 0,
+        "deaths": 6,
+        "reproduction_events": 0,
+        "skill_evidence_events": 0,
+        "inherited_hint_events": 0,
+        "suppressed_hint_events": 0,
+        "model_calls_attempted": 1,
+        "model_calls_succeeded": 0,
+        "model_calls_failed": 1,
+        "model_timeouts": 1,
+        "model_connection_errors": 0,
+        "model_parse_failures": 0,
+        "forbidden_or_invalid_action_attempts": 0,
+        "fallback_count": 1,
+        "mean_latency_ms": null,
+        "p95_latency_ms": null,
+        "mean_step_ms": 56.758,
+        "p95_step_ms": 79.93,
+        "dominant_actions_recent": {
+          "flee": 19,
+          "court": 13,
+          "shelter": 4
+        }
+      },
+      {
+        "config_name": "missing_endpoint",
+        "model_endpoint": "http://127.0.0.1:65534/v1",
+        "model_name": "missing",
+        "deliberation_enabled": true,
+        "fish_count_start": 8,
+        "fish_count_end": 2,
+        "egg_count_end": 0,
+        "deaths": 6,
+        "reproduction_events": 0,
+        "skill_evidence_events": 0,
+        "inherited_hint_events": 0,
+        "suppressed_hint_events": 0,
+        "model_calls_attempted": 2,
+        "model_calls_succeeded": 0,
+        "model_calls_failed": 2,
+        "model_timeouts": 0,
+        "model_connection_errors": 2,
+        "model_parse_failures": 0,
+        "forbidden_or_invalid_action_attempts": 0,
+        "fallback_count": 2,
+        "mean_latency_ms": null,
+        "p95_latency_ms": null,
+        "mean_step_ms": 56.143,
+        "p95_step_ms": 85.533,
+        "dominant_actions_recent": {
+          "flee": 19,
+          "court": 13,
+          "shelter": 4
+        }
+      },
+      {
+        "config_name": "small_candidate_qwen3_8b_existing",
+        "model_endpoint": "http://127.0.0.1:8104/v1",
+        "model_name": "exec",
+        "deliberation_enabled": true,
+        "fish_count_start": 8,
+        "fish_count_end": 2,
+        "egg_count_end": 0,
+        "deaths": 6,
+        "reproduction_events": 0,
+        "skill_evidence_events": 0,
+        "inherited_hint_events": 0,
+        "suppressed_hint_events": 0,
+        "model_calls_attempted": 2,
+        "model_calls_succeeded": 0,
+        "model_calls_failed": 2,
+        "model_timeouts": 2,
+        "model_connection_errors": 0,
+        "model_parse_failures": 0,
+        "forbidden_or_invalid_action_attempts": 0,
+        "fallback_count": 2,
+        "mean_latency_ms": null,
+        "p95_latency_ms": null,
+        "mean_step_ms": 55.802,
+        "p95_step_ms": 78.671,
+        "dominant_actions_recent": {
+          "flee": 19,
+          "court": 13,
+          "shelter": 4
+        }
+      }
+    ]
+  },
+  "safety_notes": {
+    "api_control_unauthenticated": true,
+    "api_control_can_change": ["reset", "randomize_environment", "speed", "deliberation_enabled"],
+    "api_control_cannot_change": ["model_base_url", "model_name", "api_key", "tools", "code", "energy", "death", "reproduction"],
+    "state_exposes_model_base_url": true,
+    "public_routing_recommendation": "Use --no-deliberation and protect /api/control with Cloudflare Access/basic auth or intentionally expose it as an interactive demo control."
+  },
+  "validation": {
+    "pytest": "passed: 84 passed",
+    "eval_check": "passed: 7 case files present",
+    "eval_runner": "passed",
+    "recovery_assays": {
+      "passed": true,
+      "recovery_possible": true,
+      "no_god_mode_reseed": true,
+      "ai_optional": true
+    },
+    "make_lint": "passed",
+    "js_checks": "passed for app.js, renderer_canvas.js, creature_portrait.js",
+    "api_smoke": {
+      "passed": true,
+      "url": "http://127.0.0.1:8776",
+      "no_deliberation": true,
+      "state_schema": "aquagenesys.state.v13",
+      "frame_schema": "aquagenesys.frame.v3",
+      "model_calls": 0
+    },
+    "browser_smoke": {
+      "run": false,
+      "reason": "Playwright was not installed for Node or Python in this environment."
+    }
+  }
+}
