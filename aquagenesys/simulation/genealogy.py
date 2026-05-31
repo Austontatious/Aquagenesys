@@ -331,7 +331,7 @@ def _policy_inheritance(nodes: list[dict[str, Any]], instruction_log: list[dict[
 def _skill_evidence(telemetry: dict[str, Any]) -> dict[str, Any]:
     evidence = telemetry.get("skill_evidence", {}) or {}
     return {
-        "schema": evidence.get("schema", "aquagenesys.skill_evidence.v1"),
+        "schema": evidence.get("schema", "aquagenesys.skill_evidence.v2"),
         "summary": evidence.get("summary", {}),
         "aggregates": list(evidence.get("aggregates", []) or [])[:MAX_LINEAGES],
         "recent_events": list(evidence.get("recent_events", []) or [])[:12],

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from random import Random
 
-from aquagenesys.agents import Action, BehaviorInstructionGenome
+from aquagenesys.agents import Action, BehaviorInstructionGenome, TaughtSkill
 from aquagenesys.simulation import AquagenesysSimulation, SimulationConfig
 
 
@@ -23,6 +23,40 @@ def _make_skill_carrying_child(sim: AquagenesysSimulation):
         teaching_style="opportunistic",
         allowed_skill_slots=3,
     ).normalized()
+    skill = TaughtSkill(
+        skill_id="safe-forage-demo",
+        source_parent_id=parent.fish_id,
+        source_lineage_id=parent.lineage_id,
+        created_tick=0,
+        generation_created=parent.generation,
+        skill_type="forage",
+        trigger="low_energy",
+        action_bias="safe_food",
+        confidence=0.78,
+        energy_cost_bias=-0.05,
+        risk_bias=-0.05,
+        memory_bias="prefer_energy_gain",
+        ttl_generations=4,
+        decay=0.12,
+        rationale_tag="test_supported_skill",
+    )
+    parent.taught_skills = [skill]
+    for tick in (1, 2):
+        sim.tick = tick
+        sim._record_skill_evidence(
+            event_type="skill_outcome_observed",
+            fish=parent,
+            skill=skill,
+            source="self",
+            parent_id=parent.fish_id,
+            context="hunger_or_food_opportunity",
+            action="forage",
+            immediate_outcome="fed",
+            outcome_score=0.25,
+            evidence_strength="moderate",
+            effect_label="helped_possible",
+            detail="Test setup records repeated positive skill observations.",
+        )
     parent.genome = replace(parent.genome, reproduction_rate=0.97, dormancy_bias=0.90, mutation_load=0.03)
     parent.age = parent.life_history.maturity_age_ticks + 14
     parent.energy = 96.0
@@ -73,11 +107,15 @@ def test_skill_inheritance_is_recorded_and_aggregated() -> None:
     _parent, child = _make_skill_carrying_child(sim)
     state = sim.state()
     evidence = state["telemetry"]["skill_evidence"]
-    assert state["schema"] == "aquagenesys.state.v12"
-    assert evidence["schema"] == "aquagenesys.skill_evidence.v1"
+    assert state["schema"] == "aquagenesys.state.v13"
+    assert evidence["schema"] == "aquagenesys.skill_evidence.v2"
     assert any(event["event_type"] == "skill_inherited" and event["child_id"] == child.fish_id for event in evidence["recent_events"])
-    aggregate = evidence["aggregates"][0]
-    assert aggregate["skill_hash"] == child.taught_skills[0].skill_hash
+    assert any(event["event_type"] == "skill_inheritance_governance" and event["status"] == "inherited" for event in evidence["recent_events"])
+    aggregate = next(
+        row
+        for row in evidence["aggregates"]
+        if row["skill_hash"] == child.taught_skills[0].skill_hash and row["carriers_count"] >= 1
+    )
     assert aggregate["carriers_count"] >= 1
     assert aggregate["offspring_carriers_count"] >= 1
     assert state["dashboard"]["skill_evidence"]["aggregates"]
@@ -150,9 +188,9 @@ def test_lineage_story_reports_skill_evidence_without_causal_overclaim() -> None
     story = sim.state()["lineage_story"]
     lineage_story = next(item for item in story["lineage_stories"] if item["lineage_id"] == child.lineage_id)
     answer_text = " ".join(lineage_story["answers"].values())
-    assert story["schema"] == "aquagenesys.lineage_story.v4"
+    assert story["schema"] == "aquagenesys.lineage_story.v5"
     assert lineage_story["skill_evidence"]["aggregates"]
-    assert "helped possible" in answer_text
-    assert "does not prove causality" in answer_text
+    assert "Skill inheritance gate" in answer_text
+    assert "observational" in answer_text
     assert "caused success" not in answer_text.lower()
     sim.close()

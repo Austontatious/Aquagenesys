@@ -617,6 +617,7 @@ class FishAgent:
     parent_ids: tuple[int, ...] = field(default_factory=tuple)
     instruction_genome: BehaviorInstructionGenome = field(default_factory=BehaviorInstructionGenome)
     taught_skills: list[TaughtSkill] = field(default_factory=list)
+    skill_inheritance: list[dict[str, Any]] = field(default_factory=list)
     instruction_inherited_from: str = ""
     accepted_instruction_patch_ids: list[str] = field(default_factory=list)
     rejected_instruction_patch_ids: list[str] = field(default_factory=list)
@@ -932,6 +933,7 @@ class FishAgent:
             "affordances": self.morphology_affordances.payload(),
             "instruction_genome": self.instruction_genome.policy_payload(),
             "taught_skills": [skill.payload() for skill in self.taught_skills],
+            "skill_inheritance": list(self.skill_inheritance[-8:]),
             "instruction_lineage": {
                 "inherited_from": self.instruction_inherited_from,
                 "accepted_patch_ids": list(self.accepted_instruction_patch_ids[-8:]),

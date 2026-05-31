@@ -177,7 +177,9 @@ def test_offspring_and_eggs_inherit_instruction_seed_and_patch_trace() -> None:
     target = result.eggs[0] if result.eggs else result.newborns[0]
     assert target.instruction_genome.inherited_from_policy_hash == parent.instruction_genome.policy_hash
     assert target.instruction_genome.policy_hash
-    assert target.taught_skills
+    assert not target.taught_skills
+    assert target.skill_inheritance
+    assert target.skill_inheritance[0]["status"] == "observed_only"
     assert sim.instruction_patches_accepted >= 1
     assert sim.instruction_inheritance_events >= 1
     sim.close()

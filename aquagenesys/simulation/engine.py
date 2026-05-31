@@ -15,7 +15,6 @@ from aquagenesys.agents.instructions import (
     BehaviorInstructionGenome,
     InstructionPatchDecision,
     TaughtSkill,
-    inherit_taught_skills,
     rule_generated_patch,
     stable_hash,
     validate_instruction_patch,
@@ -30,6 +29,8 @@ from aquagenesys.simulation.skill_evidence import (
     SkillUseEvidence,
     aggregate_skill_evidence,
     classify_skill_outcome,
+    evaluate_skill_inheritance,
+    govern_taught_skill_inheritance,
     matched_skills_for_action,
     skill_identity,
     skill_source,
@@ -120,6 +121,9 @@ class AquagenesysSimulation:
         self.instruction_patches_rejected = 0
         self.teaching_events = 0
         self.instruction_inheritance_events = 0
+        self.skill_inheritance_governance_events = 0
+        self.skill_inheritance_inherited = 0
+        self.skill_inheritance_suppressed = 0
         self.instruction_rejection_reasons: Counter[str] = Counter()
         self.agent_code_snapshots = 0
         self.dead_agent_summaries: dict[int, dict[str, Any]] = {}
@@ -900,7 +904,7 @@ class AquagenesysSimulation:
             genome = parent.genome.mutated(self.rng, lineage_id=None if lineage_id == parent.lineage_id else lineage_id)
             if parthenogenetic:
                 genome = genome.mutated(self.rng)
-            instruction_genome, taught_skills, patch_decision = self._offspring_instruction_seed(
+            instruction_genome, taught_skills, patch_decision, skill_inheritance = self._offspring_instruction_seed(
                 parent,
                 child_generation=parent.generation + 1,
                 parthenogenetic=parthenogenetic,
@@ -916,6 +920,7 @@ class AquagenesysSimulation:
                         energy_per,
                         parthenogenetic=parthenogenetic,
                         patch_decision=patch_decision,
+                        skill_inheritance=skill_inheritance,
                     )
                 )
             elif len(self.fish) + len(newborns) < self.config.max_population:
@@ -929,6 +934,7 @@ class AquagenesysSimulation:
                         energy_per,
                         parthenogenetic=parthenogenetic,
                         patch_decision=patch_decision,
+                        skill_inheritance=skill_inheritance,
                     )
                 )
 
@@ -1079,6 +1085,7 @@ class AquagenesysSimulation:
         *,
         parthenogenetic: bool,
         patch_decision: InstructionPatchDecision | None = None,
+        skill_inheritance: list[dict[str, Any]] | None = None,
     ) -> FishAgent:
         dx = self.rng.uniform(-1.0, 1.0)
         dy = self.rng.uniform(-1.0, 1.0)
@@ -1103,6 +1110,7 @@ class AquagenesysSimulation:
             parent_ids=(parent.fish_id,),
             instruction_genome=instruction_genome,
             taught_skills=taught_skills,
+            skill_inheritance=list(skill_inheritance or []),
             instruction_inherited_from=parent.instruction_genome.policy_hash,
             accepted_instruction_patch_ids=list(instruction_genome.accepted_patch_ids),
             rejected_instruction_patch_ids=list(instruction_genome.rejected_patch_ids),
@@ -1112,7 +1120,13 @@ class AquagenesysSimulation:
             locomotion_speed=hypot(parent.vx, parent.vy),
         )
         self.next_fish_id += 1
-        self._record_instruction_inheritance(parent, child=child, patch_decision=patch_decision, delivery="live_birth")
+        self._record_instruction_inheritance(
+            parent,
+            child=child,
+            patch_decision=patch_decision,
+            delivery="live_birth",
+            skill_inheritance=skill_inheritance or [],
+        )
         self._record_agent_code_snapshot(child, event_type="live_birth_code_snapshot", parent=parent)
         return child
 
@@ -1127,6 +1141,7 @@ class AquagenesysSimulation:
         *,
         parthenogenetic: bool,
         patch_decision: InstructionPatchDecision | None = None,
+        skill_inheritance: list[dict[str, Any]] | None = None,
     ) -> EggEntity:
         life = genome.life_history()
         dx = self.rng.uniform(-1.0, 1.0)
@@ -1142,6 +1157,7 @@ class AquagenesysSimulation:
             genome=genome,
             instruction_genome=instruction_genome,
             taught_skills=taught_skills,
+            skill_inheritance=list(skill_inheritance or []),
             instruction_inherited_from=parent.instruction_genome.policy_hash,
             generation=parent.generation + 1,
             created_tick=self.tick,
@@ -1159,7 +1175,13 @@ class AquagenesysSimulation:
             state="dormant" if dormant else "gestating",
         )
         self.next_egg_id += 1
-        self._record_instruction_inheritance(parent, egg=egg, patch_decision=patch_decision, delivery="egg")
+        self._record_instruction_inheritance(
+            parent,
+            egg=egg,
+            patch_decision=patch_decision,
+            delivery="egg",
+            skill_inheritance=skill_inheritance or [],
+        )
         return egg
 
     def _offspring_viability(
@@ -1189,18 +1211,21 @@ class AquagenesysSimulation:
         *,
         child_generation: int,
         parthenogenetic: bool,
-    ) -> tuple[BehaviorInstructionGenome, list[TaughtSkill], InstructionPatchDecision | None]:
+    ) -> tuple[BehaviorInstructionGenome, list[TaughtSkill], InstructionPatchDecision | None, list[dict[str, Any]]]:
         if not self.config.instruction_inheritance_enabled:
-            return BehaviorInstructionGenome(), [], None
+            return BehaviorInstructionGenome(), [], None, []
         parent_hash = parent.instruction_genome.policy_hash
         instruction = parent.instruction_genome.mutated(self.rng, parent_hash=parent_hash)
         if parthenogenetic:
             instruction = instruction.mutated(self.rng, parent_hash=parent_hash)
-        taught_skills = inherit_taught_skills(
+        taught_skills, governance_decisions = govern_taught_skill_inheritance(
             parent.taught_skills,
+            events=list(self.skill_evidence_log),
+            current_tick=self.tick,
             current_generation=child_generation,
             allowed_slots=instruction.allowed_skill_slots,
-            rng=self.rng,
+            parent_id=parent.fish_id,
+            lineage_id=parent.lineage_id,
         )
         patch_decision: InstructionPatchDecision | None = None
         proposal = rule_generated_patch(
@@ -1212,16 +1237,24 @@ class AquagenesysSimulation:
         if proposal is not None:
             patch_decision = self._validate_and_record_instruction_patch(parent, proposal)
             if patch_decision.accepted and patch_decision.skill is not None:
-                if len(taught_skills) < instruction.allowed_skill_slots:
-                    taught_skills.append(patch_decision.skill)
-                taught_skills = taught_skills[: instruction.allowed_skill_slots]
-                instruction = instruction.with_skill_bias(patch_decision.skill).with_patch_result(
+                governance_decisions.append(
+                    evaluate_skill_inheritance(
+                        patch_decision.skill,
+                        events=list(self.skill_evidence_log),
+                        current_tick=self.tick,
+                        current_generation=child_generation,
+                        parent_id=parent.fish_id,
+                        lineage_id=parent.lineage_id,
+                        source="new_patch",
+                    )
+                )
+                instruction = instruction.with_patch_result(
                     patch_decision.patch_id,
                     accepted=True,
                 )
             else:
                 instruction = instruction.with_patch_result(patch_decision.patch_id, accepted=False)
-        return instruction.normalized(), taught_skills, patch_decision
+        return instruction.normalized(), taught_skills, patch_decision, [decision.payload() for decision in governance_decisions]
 
     def _validate_and_record_instruction_patch(self, parent: FishAgent, proposal: dict[str, Any]) -> InstructionPatchDecision:
         self.instruction_patches_proposed += 1
@@ -1265,12 +1298,19 @@ class AquagenesysSimulation:
         egg: EggEntity | None = None,
         patch_decision: InstructionPatchDecision | None,
         delivery: str,
+        skill_inheritance: Sequence[dict[str, Any]] | None = None,
     ) -> None:
         self.instruction_inheritance_events += 1
         target_policy = child.instruction_genome if child is not None else egg.instruction_genome if egg is not None else parent.instruction_genome
         target_skills = child.taught_skills if child is not None else egg.taught_skills if egg is not None else []
         target_id = child.fish_id if child is not None else None
         egg_id = egg.egg_id if egg is not None else None
+        skill_governance = list(skill_inheritance or [])
+        suppressed_skill_count = sum(
+            1
+            for item in skill_governance
+            if str(item.get("status", "")).startswith("suppressed") or item.get("status") == "observed_only"
+        )
         entry = {
             "tick": self.tick,
             "event_type": "offspring_instruction_inheritance",
@@ -1285,12 +1325,17 @@ class AquagenesysSimulation:
             "skill_count": len(target_skills),
             "skill_hashes": [skill.skill_hash for skill in target_skills],
             "skills": [skill.payload(compact=True) for skill in target_skills],
+            "skill_inheritance": skill_governance,
+            "inherited_skill_count": sum(1 for item in skill_governance if item.get("status") == "inherited"),
+            "suppressed_skill_count": suppressed_skill_count,
             "patch_id": patch_decision.patch_id if patch_decision else "",
             "patch_accepted": patch_decision.accepted if patch_decision else None,
             "patch_reason": patch_decision.reason if patch_decision else "",
         }
         self.instruction_log.append(entry)
         self._record_instruction_event("offspring_instruction_inheritance", fish=parent, child=child, egg=egg, patch_decision=patch_decision, extra=entry)
+        for decision in skill_governance:
+            self._record_skill_inheritance_governance(parent, decision, child=child, egg=egg, delivery=delivery)
         taught_now_hash = patch_decision.skill.skill_hash if patch_decision and patch_decision.accepted and patch_decision.skill else ""
         for skill in target_skills:
             target_fish = child if child is not None else None
@@ -1311,6 +1356,64 @@ class AquagenesysSimulation:
                 effect_label="insufficient_evidence",
                 detail="Offspring received a bounded taught skill; use and outcome are tracked separately.",
             )
+
+    def _record_skill_inheritance_governance(
+        self,
+        parent: FishAgent,
+        decision: dict[str, Any],
+        *,
+        child: FishAgent | None = None,
+        egg: EggEntity | None = None,
+        delivery: str,
+    ) -> None:
+        status = str(decision.get("status", "suppressed_insufficient_evidence") or "suppressed_insufficient_evidence")
+        target_lineage = child.lineage_id if child is not None else egg.lineage_id if egg is not None else parent.lineage_id
+        target_generation = child.generation if child is not None else egg.generation if egg is not None else parent.generation
+        target_id = child.fish_id if child is not None else None
+        egg_id = egg.egg_id if egg is not None else None
+        self.skill_inheritance_governance_events += 1
+        if status == "inherited":
+            self.skill_inheritance_inherited += 1
+        elif status.startswith("suppressed") or status == "observed_only":
+            self.skill_inheritance_suppressed += 1
+        event = {
+            "event_type": "skill_inheritance_governance",
+            "tick": self.tick,
+            "fish_id": target_id,
+            "parent_id": parent.fish_id,
+            "child_id": target_id,
+            "egg_id": egg_id,
+            "lineage_id": target_lineage,
+            "source_lineage_id": decision.get("source_lineage_id", parent.lineage_id),
+            "generation": target_generation,
+            "skill_id": decision.get("skill_id", ""),
+            "skill_hash": decision.get("skill_hash", ""),
+            "skill_name": decision.get("skill_name", "skill"),
+            "skill_type": decision.get("skill_type", "unknown"),
+            "source": "inheritance_governance",
+            "status": status,
+            "inheritance_status": status,
+            "confidence": round(float(decision.get("confidence", 0.0) or 0.0), 3),
+            "evidence_count": int(decision.get("evidence_count", 0) or 0),
+            "positive_evidence_count": int(decision.get("positive_evidence_count", 0) or 0),
+            "negative_evidence_count": int(decision.get("negative_evidence_count", 0) or 0),
+            "unclear_evidence_count": int(decision.get("unclear_evidence_count", 0) or 0),
+            "reproduction_after_use_count": int(decision.get("reproduction_after_use_count", 0) or 0),
+            "last_seen_tick": int(decision.get("last_seen_tick", 0) or 0),
+            "stale": bool(decision.get("stale", False)),
+            "reason_code": decision.get("reason_code", ""),
+            "reason": decision.get("reason", ""),
+            "context": "offspring_skill_inheritance_gate",
+            "action": "inherit_skill",
+            "immediate_outcome": status,
+            "evidence_strength": "moderate" if status == "inherited" else "weak",
+            "effect_label": "insufficient_evidence",
+            "delivery": delivery,
+            "detail": decision.get("reason", ""),
+            "claim_boundary": "evidence_governs_inheritance_but_is_not_causal_proof",
+        }
+        self.skill_evidence_log.append(event)
+        self.archive.write_lifecycle_event({"run_id": self.run_id, **event})
 
     def _record_instruction_event(
         self,
@@ -1560,6 +1663,7 @@ class AquagenesysSimulation:
                 "mismatch_warnings": list((fish.last_behavior_rationale or {}).get("mismatch_warnings", []))[:4],
             },
             "taught_skill_hashes": [skill.skill_hash for skill in fish.taught_skills],
+            "skill_inheritance": list(fish.skill_inheritance[-4:]),
             "accepted_instruction_patch_ids": list(fish.accepted_instruction_patch_ids[-8:]),
             "rejected_instruction_patch_ids": list(fish.rejected_instruction_patch_ids[-8:]),
             "created_tick": self.tick if event_type != "death_code_snapshot" else None,
@@ -1733,6 +1837,7 @@ class AquagenesysSimulation:
             parent_ids=egg.parent_ids,
             instruction_genome=egg.instruction_genome,
             taught_skills=list(egg.taught_skills),
+            skill_inheritance=list(egg.skill_inheritance),
             instruction_inherited_from=egg.instruction_inherited_from,
             accepted_instruction_patch_ids=list(egg.instruction_genome.accepted_patch_ids),
             rejected_instruction_patch_ids=list(egg.instruction_genome.rejected_patch_ids),
@@ -2140,6 +2245,9 @@ class AquagenesysSimulation:
                 "patches_rejected": self.instruction_patches_rejected,
                 "teaching_events": self.teaching_events,
                 "inheritance_events": self.instruction_inheritance_events,
+                "skill_governance_events": self.skill_inheritance_governance_events,
+                "skills_inherited_by_evidence": self.skill_inheritance_inherited,
+                "skills_suppressed_by_evidence": self.skill_inheritance_suppressed,
                 "agent_code_snapshots": self.agent_code_snapshots,
                 "dead_agent_summaries": len(self.dead_agent_summaries),
                 "policy_variants_alive": len(policy_hashes),
@@ -2181,7 +2289,7 @@ class AquagenesysSimulation:
         morphology = self._morphology_payload()
         behavior = self._behavior_payload()
         return {
-            "schema": "aquagenesys.state.v12",
+            "schema": "aquagenesys.state.v13",
             "tick": self.tick,
             "run_id": self.run_id,
             "config": {

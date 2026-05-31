@@ -5,11 +5,24 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
 
-SCHEMA = "aquagenesys.skill_evidence.v1"
+SCHEMA = "aquagenesys.skill_evidence.v2"
+GOVERNANCE_SCHEMA = "aquagenesys.skill_inheritance_governance.v1"
 EFFECT_LABELS = {"helped_possible", "harmed_possible", "unclear", "insufficient_evidence"}
 STRENGTHS = ("insufficient_evidence", "weak", "moderate", "strong")
+GOVERNANCE_STATUSES = {
+    "eligible",
+    "inherited",
+    "suppressed_insufficient_evidence",
+    "suppressed_stale_evidence",
+    "suppressed_negative_outcome",
+    "suppressed_slot_limit",
+    "observed_only",
+}
 MAX_AGGREGATES = 12
 MAX_RECENT_EVENTS = 24
+MIN_GOVERNING_EVIDENCE = 2
+MAX_GOVERNING_EVIDENCE_AGE = 720
+MIN_GOVERNING_CONFIDENCE = 0.56
 
 
 @dataclass(frozen=True)
@@ -71,6 +84,88 @@ class SkillUseEvidence:
         return payload
 
 
+@dataclass(frozen=True)
+class SkillInheritanceDecision:
+    skill: Any
+    status: str
+    confidence: float
+    evidence_count: int
+    positive_evidence_count: int
+    negative_evidence_count: int
+    unclear_evidence_count: int
+    reproduction_after_use_count: int
+    last_seen_tick: int
+    stale: bool
+    reason_code: str
+    reason: str
+    source_parent_id: int | None
+    source_lineage_id: int
+    evidence_scope: str = "lineage_local"
+    evidence_mode: str = "inheritance_governing"
+    basis: tuple[dict[str, Any], ...] = ()
+
+    @property
+    def inherited(self) -> bool:
+        return self.status == "inherited"
+
+    @property
+    def eligible(self) -> bool:
+        return self.status in {"eligible", "inherited"}
+
+    def with_status(self, status: str, *, reason_code: str, reason: str) -> "SkillInheritanceDecision":
+        return SkillInheritanceDecision(
+            skill=self.skill,
+            status=status if status in GOVERNANCE_STATUSES else "suppressed_insufficient_evidence",
+            confidence=self.confidence,
+            evidence_count=self.evidence_count,
+            positive_evidence_count=self.positive_evidence_count,
+            negative_evidence_count=self.negative_evidence_count,
+            unclear_evidence_count=self.unclear_evidence_count,
+            reproduction_after_use_count=self.reproduction_after_use_count,
+            last_seen_tick=self.last_seen_tick,
+            stale=self.stale,
+            reason_code=reason_code,
+            reason=reason,
+            source_parent_id=self.source_parent_id,
+            source_lineage_id=self.source_lineage_id,
+            evidence_scope=self.evidence_scope,
+            evidence_mode=self.evidence_mode,
+            basis=self.basis,
+        )
+
+    def payload(self, *, compact: bool = False) -> dict[str, Any]:
+        identity = skill_identity(self.skill)
+        payload: dict[str, Any] = {
+            "schema": GOVERNANCE_SCHEMA,
+            "skill_id": identity["skill_id"],
+            "skill_hash": identity["skill_hash"],
+            "skill_name": identity["skill_name"],
+            "skill_type": identity["skill_type"],
+            "status": self.status,
+            "inherited": self.inherited,
+            "eligible": self.eligible,
+            "confidence": round(self.confidence, 3),
+            "evidence_count": self.evidence_count,
+            "positive_evidence_count": self.positive_evidence_count,
+            "negative_evidence_count": self.negative_evidence_count,
+            "unclear_evidence_count": self.unclear_evidence_count,
+            "reproduction_after_use_count": self.reproduction_after_use_count,
+            "last_seen_tick": self.last_seen_tick,
+            "stale": self.stale,
+            "reason_code": self.reason_code,
+            "reason": self.reason,
+            "source_parent_id": self.source_parent_id,
+            "source_lineage_id": self.source_lineage_id,
+            "evidence_scope": self.evidence_scope,
+            "evidence_mode": self.evidence_mode,
+            "claim_boundary": "Evidence governs inheritance eligibility; it is still observational and not causal proof.",
+        }
+        if not compact:
+            payload["skill"] = self.skill.payload(compact=True) if hasattr(self.skill, "payload") else identity
+            payload["evidence_basis"] = list(self.basis[:4])
+        return payload
+
+
 def skill_name(skill: Any) -> str:
     skill_type = str(getattr(skill, "skill_type", "unknown") or "unknown")
     action_bias = str(getattr(skill, "action_bias", "unknown") or "unknown")
@@ -94,6 +189,271 @@ def skill_source(skill: Any, fish: Any | None = None, *, taught_now: bool = Fals
     if int(getattr(skill, "source_parent_id", 0) or 0) > 0:
         return "inherited"
     return "unknown"
+
+
+def evaluate_skill_inheritance(
+    skill: Any,
+    *,
+    events: Iterable[dict[str, Any]],
+    current_tick: int,
+    current_generation: int,
+    parent_id: int | None,
+    lineage_id: int,
+    source: str = "parent",
+) -> SkillInheritanceDecision:
+    identity = skill_identity(skill)
+    skill_hash = identity["skill_hash"]
+    source_parent_id = int(getattr(skill, "source_parent_id", 0) or 0) or parent_id
+    source_lineage_id = int(getattr(skill, "source_lineage_id", 0) or 0) or lineage_id
+    expired = bool(getattr(skill, "expired_for_generation", lambda _generation: False)(current_generation))
+    relevant = [
+        row
+        for row in events
+        if _governing_event_matches(
+            row,
+            skill_hash=skill_hash,
+            lineage_id=lineage_id,
+            source_lineage_id=source_lineage_id,
+            parent_id=parent_id,
+        )
+    ]
+    positive = sum(1 for row in relevant if row.get("effect_label") == "helped_possible")
+    negative = sum(1 for row in relevant if row.get("effect_label") == "harmed_possible")
+    unclear = sum(1 for row in relevant if row.get("effect_label") == "unclear")
+    reproduction_after_use = sum(1 for row in relevant if row.get("reproduction_after_use"))
+    evidence_count = positive + negative + unclear
+    last_seen = max((int(row.get("tick", 0) or 0) for row in relevant), default=0)
+    stale = bool(relevant and current_tick - last_seen > MAX_GOVERNING_EVIDENCE_AGE)
+    confidence = _governance_confidence(
+        evidence_count=evidence_count,
+        positive=positive,
+        negative=negative,
+        unclear=unclear,
+        reproduction_after_use=reproduction_after_use,
+        last_seen_tick=last_seen,
+        current_tick=current_tick,
+    )
+    basis = tuple(_governance_basis(row) for row in sorted(relevant, key=lambda item: int(item.get("tick", 0) or 0), reverse=True)[:4])
+
+    if expired or stale:
+        return SkillInheritanceDecision(
+            skill=skill,
+            status="suppressed_stale_evidence",
+            confidence=confidence,
+            evidence_count=evidence_count,
+            positive_evidence_count=positive,
+            negative_evidence_count=negative,
+            unclear_evidence_count=unclear,
+            reproduction_after_use_count=reproduction_after_use,
+            last_seen_tick=last_seen,
+            stale=True,
+            reason_code="stale_or_expired",
+            reason="The skill hint is outside its generation TTL or its supporting observations are stale.",
+            source_parent_id=source_parent_id,
+            source_lineage_id=source_lineage_id,
+            basis=basis,
+        )
+    if negative > 0 and negative >= positive:
+        return SkillInheritanceDecision(
+            skill=skill,
+            status="suppressed_negative_outcome",
+            confidence=confidence,
+            evidence_count=evidence_count,
+            positive_evidence_count=positive,
+            negative_evidence_count=negative,
+            unclear_evidence_count=unclear,
+            reproduction_after_use_count=reproduction_after_use,
+            last_seen_tick=last_seen,
+            stale=False,
+            reason_code="negative_outcome_pressure",
+            reason="Observed harmed-possible outcomes meet or exceed positive support.",
+            source_parent_id=source_parent_id,
+            source_lineage_id=source_lineage_id,
+            basis=basis,
+        )
+    if evidence_count < MIN_GOVERNING_EVIDENCE or positive < MIN_GOVERNING_EVIDENCE:
+        status = "observed_only" if source == "new_patch" and evidence_count <= 0 else "suppressed_insufficient_evidence"
+        return SkillInheritanceDecision(
+            skill=skill,
+            status=status,
+            confidence=confidence,
+            evidence_count=evidence_count,
+            positive_evidence_count=positive,
+            negative_evidence_count=negative,
+            unclear_evidence_count=unclear,
+            reproduction_after_use_count=reproduction_after_use,
+            last_seen_tick=last_seen,
+            stale=False,
+            reason_code="insufficient_positive_evidence",
+            reason="At least two recent positive lineage-local observations are required before inheritance.",
+            source_parent_id=source_parent_id,
+            source_lineage_id=source_lineage_id,
+            basis=basis,
+        )
+    if confidence < MIN_GOVERNING_CONFIDENCE:
+        return SkillInheritanceDecision(
+            skill=skill,
+            status="suppressed_insufficient_evidence",
+            confidence=confidence,
+            evidence_count=evidence_count,
+            positive_evidence_count=positive,
+            negative_evidence_count=negative,
+            unclear_evidence_count=unclear,
+            reproduction_after_use_count=reproduction_after_use,
+            last_seen_tick=last_seen,
+            stale=False,
+            reason_code="confidence_below_threshold",
+            reason="Evidence exists, but confidence is below the deterministic inheritance threshold.",
+            source_parent_id=source_parent_id,
+            source_lineage_id=source_lineage_id,
+            basis=basis,
+        )
+    return SkillInheritanceDecision(
+        skill=skill,
+        status="eligible",
+        confidence=confidence,
+        evidence_count=evidence_count,
+        positive_evidence_count=positive,
+        negative_evidence_count=negative,
+        unclear_evidence_count=unclear,
+        reproduction_after_use_count=reproduction_after_use,
+        last_seen_tick=last_seen,
+        stale=False,
+        reason_code="evidence_threshold_met",
+        reason="Recent lineage-local evidence meets the inheritance gate.",
+        source_parent_id=source_parent_id,
+        source_lineage_id=source_lineage_id,
+        basis=basis,
+    )
+
+
+def govern_taught_skill_inheritance(
+    parent_skills: Sequence[Any],
+    *,
+    events: Iterable[dict[str, Any]],
+    current_tick: int,
+    current_generation: int,
+    allowed_slots: int,
+    parent_id: int | None,
+    lineage_id: int,
+) -> tuple[list[Any], list[SkillInheritanceDecision]]:
+    event_rows = list(events)
+    evaluated = [
+        evaluate_skill_inheritance(
+            skill,
+            events=event_rows,
+            current_tick=current_tick,
+            current_generation=current_generation,
+            parent_id=parent_id,
+            lineage_id=lineage_id,
+        )
+        for skill in parent_skills
+    ]
+    eligible = [decision for decision in evaluated if decision.status == "eligible"]
+    eligible.sort(
+        key=lambda decision: (
+            decision.confidence,
+            decision.positive_evidence_count,
+            decision.reproduction_after_use_count,
+            decision.last_seen_tick,
+        ),
+        reverse=True,
+    )
+    selected = {decision.skill.skill_hash for decision in eligible[: max(0, allowed_slots)]}
+    inherited: list[Any] = []
+    decisions: list[SkillInheritanceDecision] = []
+    for decision in evaluated:
+        if decision.skill.skill_hash in selected:
+            inherited.append(decision.skill)
+            decisions.append(
+                decision.with_status(
+                    "inherited",
+                    reason_code="evidence_threshold_met",
+                    reason="Inherited because recent lineage-local evidence meets the deterministic gate.",
+                )
+            )
+        elif decision.status == "eligible":
+            decisions.append(
+                decision.with_status(
+                    "suppressed_slot_limit",
+                    reason_code="skill_slot_limit",
+                    reason="Evidence was sufficient, but offspring skill slots were already filled by stronger hints.",
+                )
+            )
+        else:
+            decisions.append(decision)
+    decisions.sort(
+        key=lambda decision: (
+            1 if decision.status == "inherited" else 0,
+            decision.confidence,
+            decision.positive_evidence_count,
+            decision.last_seen_tick,
+        ),
+        reverse=True,
+    )
+    inherited.sort(key=lambda skill: getattr(skill, "confidence", 0.0), reverse=True)
+    return inherited[: max(0, allowed_slots)], decisions
+
+
+def _governing_event_matches(
+    event: dict[str, Any],
+    *,
+    skill_hash: str,
+    lineage_id: int,
+    source_lineage_id: int,
+    parent_id: int | None,
+) -> bool:
+    if event.get("event_type") not in {"skill_outcome_observed", "skill_descendant_outcome"}:
+        return False
+    if str(event.get("skill_hash", "")) != skill_hash:
+        return False
+    event_lineage = int(event.get("lineage_id", 0) or 0)
+    if event_lineage in {lineage_id, source_lineage_id}:
+        return True
+    if parent_id is not None and int(event.get("fish_id", 0) or 0) == int(parent_id):
+        return True
+    return False
+
+
+def _governance_confidence(
+    *,
+    evidence_count: int,
+    positive: int,
+    negative: int,
+    unclear: int,
+    reproduction_after_use: int,
+    last_seen_tick: int,
+    current_tick: int,
+) -> float:
+    if evidence_count <= 0:
+        return 0.0
+    age = max(0, current_tick - last_seen_tick)
+    age_penalty = min(0.22, age / max(1, MAX_GOVERNING_EVIDENCE_AGE) * 0.22)
+    confidence = (
+        0.28
+        + min(positive, 5) * 0.15
+        + min(reproduction_after_use, 2) * 0.12
+        - min(negative, 4) * 0.22
+        - min(unclear, 4) * 0.025
+        - age_penalty
+    )
+    if evidence_count < MIN_GOVERNING_EVIDENCE or positive < MIN_GOVERNING_EVIDENCE:
+        confidence = min(confidence, MIN_GOVERNING_CONFIDENCE - 0.05)
+    if negative:
+        confidence = min(confidence, 0.64 - negative * 0.10)
+    return round(max(0.0, min(0.86, confidence)), 3)
+
+
+def _governance_basis(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "tick": int(event.get("tick", 0) or 0),
+        "event_type": str(event.get("event_type", "")),
+        "effect_label": str(event.get("effect_label", "insufficient_evidence")),
+        "context": str(event.get("context", "")),
+        "action": str(event.get("action", "")),
+        "immediate_outcome": str(event.get("immediate_outcome", "")),
+        "reproduction_after_use": bool(event.get("reproduction_after_use", False)),
+    }
 
 
 def matched_skills_for_action(fish: Any, perception: Any, action: Any) -> list[dict[str, Any]]:
@@ -189,6 +549,13 @@ def aggregate_skill_evidence(
                 "harmed_possible_count": 0,
                 "unclear_count": 0,
                 "insufficient_evidence_count": 0,
+                "inheritance_governance_count": 0,
+                "inherited_hint_count": 0,
+                "suppressed_hint_count": 0,
+                "governance_status_counts": {},
+                "latest_governance_status": "",
+                "governance_confidence": 0.0,
+                "suppression_reason": "",
                 "last_seen_tick": 0,
                 "latest_relevant_event": "",
                 "latest_context": "",
@@ -259,6 +626,20 @@ def aggregate_skill_evidence(
                 row["unclear_count"] += 1
             else:
                 row["insufficient_evidence_count"] += 1
+        elif event_type == "skill_inheritance_governance":
+            status = str(event.get("status", event.get("inheritance_status", "")) or "")
+            if status not in GOVERNANCE_STATUSES:
+                status = "suppressed_insufficient_evidence"
+            row["inheritance_governance_count"] += 1
+            row["latest_governance_status"] = status
+            row["governance_confidence"] = round(float(event.get("confidence", 0.0) or 0.0), 3)
+            row["suppression_reason"] = str(event.get("reason", "") or "")
+            status_counts = row["governance_status_counts"]
+            status_counts[status] = int(status_counts.get(status, 0) or 0) + 1
+            if status == "inherited":
+                row["inherited_hint_count"] += 1
+            elif status.startswith("suppressed") or status == "observed_only":
+                row["suppressed_hint_count"] += 1
 
     for key, users in user_sets.items():
         aggregates[key]["users_count"] = len(users)
@@ -290,6 +671,16 @@ def aggregate_skill_evidence(
         reverse=True,
     )
     label_counts = Counter(str(event.get("effect_label", "insufficient_evidence")) for event in event_rows if event.get("event_type") in {"skill_outcome_observed", "skill_descendant_outcome"})
+    governance_counts = Counter(
+        str(event.get("status", event.get("inheritance_status", "")) or "")
+        for event in event_rows
+        if event.get("event_type") == "skill_inheritance_governance"
+    )
+    suppressed_count = sum(
+        count
+        for status, count in governance_counts.items()
+        if status.startswith("suppressed") or status == "observed_only"
+    )
     return {
         "schema": SCHEMA,
         "events_recorded": len(event_rows),
@@ -304,6 +695,12 @@ def aggregate_skill_evidence(
             "harmed_possible": label_counts.get("harmed_possible", 0),
             "unclear": label_counts.get("unclear", 0),
             "insufficient_evidence": label_counts.get("insufficient_evidence", 0),
+            "inheritance_governance_events": sum(governance_counts.values()),
+            "eligible_skill_hints": governance_counts.get("eligible", 0) + governance_counts.get("inherited", 0),
+            "inherited_skill_hints": governance_counts.get("inherited", 0),
+            "suppressed_skill_hints": suppressed_count,
+            "observed_only_skill_hints": governance_counts.get("observed_only", 0),
+            "governance_status_counts": dict(governance_counts),
             "claim_boundary": "Skill evidence is observational. It suggests possible effects but does not prove causality.",
         },
     }
@@ -413,6 +810,15 @@ def _interpretation(row: dict[str, Any]) -> str:
     helped = int(row.get("helped_possible_count", 0) or 0)
     harmed = int(row.get("harmed_possible_count", 0) or 0)
     unclear = int(row.get("unclear_count", 0) or 0)
+    governance_status = str(row.get("latest_governance_status", "") or "")
+    if governance_status == "inherited":
+        return (
+            f"{name} passed the inheritance gate with confidence {row.get('governance_confidence', 0.0)}; "
+            f"observed evidence shows {helped} helped possible, {harmed} harmed possible, {unclear} unclear."
+        )
+    if governance_status.startswith("suppressed") or governance_status == "observed_only":
+        reason = str(row.get("suppression_reason", "") or "evidence did not meet the inheritance gate")
+        return f"{name} was evaluated for inheritance and not preserved: {reason}"
     if uses <= 0:
         return f"{name} is carried by {carriers} visible descendants; no use has been observed yet."
     return (

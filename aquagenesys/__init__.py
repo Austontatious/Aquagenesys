@@ -1,5 +1,5 @@
-"""Aquagenesys v0.4.1 affordance-aware dirty puddle ecology."""
+"""Aquagenesys v0.4.2 evidence-governed dirty puddle ecology."""
 
 __all__ = ["__version__"]
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"

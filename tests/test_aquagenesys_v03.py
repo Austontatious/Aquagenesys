@@ -57,13 +57,13 @@ def test_simulation_runs_fish_agent_loop_and_observable_decisions() -> None:
     starting_signature = sim._reset_signature()
     sim.run(24)
     state = sim.state()
-    assert state["schema"] == "aquagenesys.state.v12"
+    assert state["schema"] == "aquagenesys.state.v13"
     assert state["fish"]
     assert state["telemetry"]["population"] > 0
     assert state["telemetry"]["agent_decisions"]
     assert state["dashboard"]["schema"] == "aquagenesys.dashboard.v2"
     assert state["dashboard"]["narrator"]["headline"]
-    assert state["lineage_story"]["schema"] == "aquagenesys.lineage_story.v4"
+    assert state["lineage_story"]["schema"] == "aquagenesys.lineage_story.v5"
     assert state["lineage_story"]["questions"]
     assert state["telemetry"]["model"]["calls"] == 0
     assert sim._reset_signature() != starting_signature

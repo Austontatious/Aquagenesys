@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from aquagenesys.agents.fish import FishGenome
@@ -32,6 +32,7 @@ class EggEntity:
     parthenogenetic: bool = False
     state: str = "gestating"
     death_cause: str = ""
+    skill_inheritance: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def viable(self) -> bool:
@@ -79,6 +80,7 @@ class EggEntity:
         payload["genome"] = self.genome.payload()
         payload["instruction_genome"] = self.instruction_genome.policy_payload()
         payload["taught_skills"] = [skill.payload(compact=True) for skill in self.taught_skills]
+        payload["skill_inheritance"] = list(self.skill_inheritance[-8:])
         payload["phenotype"] = self.genome.phenotype_payload(compact=True)
         payload["hatch_sensitivity"] = round(self.hatch_sensitivity, 3)
         payload["decay_rate"] = round(self.decay_rate, 5)

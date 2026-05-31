@@ -1,4 +1,4 @@
-# Aquagenesys v0.4.1
+# Aquagenesys v0.4.2
 
 Aquagenesys is a real-time artificial aquatic ecology built as a recursive agentic workflow sandbox. It renders a dirty-puddle / bioluminescent reef ecosystem where bounded organisms forage, shelter, hunt, court, reproduce, die, leave eggs, recover from bottlenecks, inherit behavior hints, and accumulate evidence under environmental pressure.
 
@@ -19,7 +19,7 @@ Aquagenesys is a working local simulation and viewer for experimenting with boun
 - It does not depend on LLM calls to keep the ecology alive.
 - It does not claim that organisms are cognitively rich planners.
 - Current behavior is a bounded scorer over biological actions, not a full autonomous planning system.
-- Skill evidence in v0.4.1 is observational; v0.4.2 is intended to strengthen this into evidence-governed inheritance.
+- Skill evidence remains observational, but v0.4.2 uses deterministic evidence gates to decide which taught hints become heritable.
 
 ## Current capabilities
 
@@ -29,6 +29,7 @@ Aquagenesys is a working local simulation and viewer for experimenting with boun
 - Modular morphology affordances for body plans, feeding, movement, armor, toxins, sensory range, costs, and viability.
 - Affordance-aware behavior that scores biological actions against local context.
 - Bounded instruction inheritance and taught behavior hints.
+- Evidence-governed skill inheritance with confidence, evidence counts, and suppression reasons.
 - Skill-use and descendant-outcome evidence tracking.
 - Genealogy explorer for biology and behavior inheritance.
 - Deterministic lineage story renderer that explains survival, inheritance, attempts, losses, and persistence without model calls.
@@ -64,9 +65,10 @@ The default optional model endpoint is OpenAI-compatible Lexi on `http://127.0.0
 ## What to watch for in the demo
 
 - Watch organisms forage, shelter, hunt, court, reproduce, and die.
-- Click an organism to inspect its morphology, affordances, behavior rationale, physiology, lineage, and portrait.
+- Click an organism to inspect its morphology, affordances, behavior rationale, physiology, lineage, skill-inheritance status, and portrait.
 - Compare organisms and notice that morphology changes what actions are cheap, plausible, or risky.
 - Watch lineage persistence, extinction, egg-bank reserves, and dormant recovery.
+- Look for skill hints that are inherited with confidence and for weak hints that are suppressed with reasons.
 - Observe that the ecology can recover without debug founder reseeding.
 - Treat optional AI deliberation as bounded and nonblocking; it is visible in telemetry but not required for survival.
 - Read the lineage story cards for cautious, evidence-backed explanations of what persisted and what failed.
@@ -108,12 +110,15 @@ Parent organisms can influence offspring behavior priors, but only through bound
 ```text
 parent strategy + taught skill proposal
 -> schema validation and capability checks
--> clamped instruction genome / skill seed
--> offspring behavior bias
+-> evidence gate for taught skill inheritance
+-> clamped instruction genome / supported skill seed
+-> bounded offspring behavior bias
 -> physics, energy, and ecology decide survivability
 ```
 
 Instruction inheritance is enabled by default with `AQUAGENESYS_INSTRUCTION_INHERITANCE_ENABLED=true`. Model-generated teaching remains disabled by default with `AQUAGENESYS_MODEL_TEACHING_ENABLED=false`; the system does not require live Lexi success for instruction inheritance.
+
+In v0.4.2, taught skills are not durable just because a parent carries them. Offspring inheritance records include a status, confidence, evidence counts, source lineage, and reason. Recent positive lineage-local evidence can preserve a hint; insufficient, stale, noisy, or negative evidence suppresses it.
 
 Instruction policy affects behavior modestly:
 
@@ -206,7 +211,7 @@ Runtime settings are centralized in `core/config.py` and may be provided with `A
 ## Known limitations
 
 - Behavior is a bounded heuristic scorer, not a general planner.
-- Skill evidence in v0.4.1 is observational and does not prove causality.
+- Skill evidence is observational and does not prove causality; v0.4.2 uses it as a bounded inheritance gate, not as a causal claim.
 - The system does not implement full sexual genetics or detailed embryology.
 - Procedural art is polished enough for demo use but not final concept art.
 - The ecology is designed for agentic systems metaphor and experimentation, not biological realism.

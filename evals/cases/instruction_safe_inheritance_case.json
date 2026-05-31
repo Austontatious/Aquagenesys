@@ -11,7 +11,7 @@
     "deliberation_enabled": false
   },
   "expected": {
-    "schema": "aquagenesys.state.v12",
+    "schema": "aquagenesys.state.v13",
     "frame_schema": "aquagenesys.frame.v3",
     "max_frame_state_ratio": 0.55,
     "min_population": 1,

@@ -430,7 +430,14 @@ def _skill_evidence_summary(telemetry: dict[str, Any]) -> dict[str, Any]:
     recent_events = list(evidence.get("recent_events", []) or [])[:8]
     uses = int(summary.get("observed_uses", 0) or 0)
     carriers = int(summary.get("carriers", 0) or 0)
-    if uses:
+    inherited = int(summary.get("inherited_skill_hints", 0) or 0)
+    suppressed = int(summary.get("suppressed_skill_hints", 0) or 0)
+    if inherited or suppressed:
+        headline = (
+            f"Skill inheritance gates preserved {inherited} hints and suppressed {suppressed}; "
+            f"{uses} uses observed across {carriers} visible carriers."
+        )
+    elif uses:
         headline = (
             f"{uses} inherited-behavior uses observed across {carriers} visible carriers; "
             f"{summary.get('helped_possible', 0)} helped possible, {summary.get('harmed_possible', 0)} harmed possible, "
@@ -441,7 +448,7 @@ def _skill_evidence_summary(telemetry: dict[str, Any]) -> dict[str, Any]:
     else:
         headline = "No inherited behavior evidence has been recorded yet."
     return {
-        "schema": evidence.get("schema", "aquagenesys.skill_evidence.v1"),
+        "schema": evidence.get("schema", "aquagenesys.skill_evidence.v2"),
         "headline": headline,
         "summary": summary,
         "aggregates": aggregates,

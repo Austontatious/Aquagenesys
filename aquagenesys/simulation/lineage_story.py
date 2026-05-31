@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from typing import Any, Iterable
 
 
-SCHEMA = "aquagenesys.lineage_story.v4"
+SCHEMA = "aquagenesys.lineage_story.v5"
 THESIS = "Instruction changes intent. Biology controls capability. Ecology decides what persists."
 QUESTIONS = (
     "Who survived?",
@@ -197,7 +197,7 @@ def _empty_story(telemetry: dict[str, Any], dashboard: dict[str, Any]) -> dict[s
         },
         "biology_track": [],
         "behavior_track": [],
-        "skill_evidence": {"aggregates": [], "recent_events": [], "claim_boundary": "No skill evidence visible yet."},
+        "skill_evidence": {"aggregates": [], "recent_events": [], "governance": [], "claim_boundary": "No skill evidence visible yet."},
         "attempts": [],
         "losses": [],
         "evidence": [],
@@ -314,6 +314,13 @@ def _tried(
         if uses
         else ""
     )
+    inherited_hints = int(skill_summary.get("inherited_skill_hints", 0) or 0)
+    suppressed_hints = int(skill_summary.get("suppressed_skill_hints", 0) or 0)
+    if inherited_hints or suppressed_hints:
+        skill_text += (
+            f" Skill inheritance gates preserved {inherited_hints} hints and suppressed {suppressed_hints} "
+            "unsupported or stale hints."
+        )
     return f"It tried {successes} visible reproductive recovery events, {inherited} instruction inheritances, {accepted} accepted teaching patches; blocked gates include {gate_text}.{skill_text}"
 
 
@@ -528,6 +535,29 @@ def _lineage_skill_evidence(lineage_id: int, telemetry: dict[str, Any]) -> dict[
         for row in list(evidence.get("recent_events", []) or [])
         if int(row.get("lineage_id", -1) or -1) == lineage_id
     ][:MAX_EVIDENCE]
+    governance = [
+        row
+        for row in recent_events
+        if row.get("event_type") == "skill_inheritance_governance"
+    ]
+    governance.extend(
+        {
+            "event_type": "skill_inheritance_governance",
+            "lineage_id": row.get("lineage_id"),
+            "skill_id": row.get("skill_id"),
+            "skill_hash": row.get("skill_hash"),
+            "skill_name": row.get("skill_name"),
+            "skill_type": row.get("skill_type"),
+            "status": row.get("latest_governance_status"),
+            "confidence": row.get("governance_confidence", 0.0),
+            "positive_evidence_count": row.get("helped_possible_count", 0),
+            "negative_evidence_count": row.get("harmed_possible_count", 0),
+            "evidence_count": row.get("uses_count", 0),
+            "reason": row.get("suppression_reason", ""),
+        }
+        for row in aggregates
+        if row.get("latest_governance_status")
+    )
     summary = {
         "skills_with_evidence": len(aggregates),
         "carriers": sum(int(row.get("carriers_count", 0) or 0) for row in aggregates),
@@ -537,12 +567,15 @@ def _lineage_skill_evidence(lineage_id: int, telemetry: dict[str, Any]) -> dict[
         "helped_possible": sum(int(row.get("helped_possible_count", 0) or 0) for row in aggregates),
         "harmed_possible": sum(int(row.get("harmed_possible_count", 0) or 0) for row in aggregates),
         "unclear": sum(int(row.get("unclear_count", 0) or 0) for row in aggregates),
+        "inherited_skill_hints": sum(int(row.get("inherited_hint_count", 0) or 0) for row in aggregates),
+        "suppressed_skill_hints": sum(int(row.get("suppressed_hint_count", 0) or 0) for row in aggregates),
     }
     return {
-        "schema": evidence.get("schema", "aquagenesys.skill_evidence.v1"),
+        "schema": evidence.get("schema", "aquagenesys.skill_evidence.v2"),
         "summary": summary,
         "aggregates": aggregates[:MAX_EVIDENCE],
         "recent_events": recent_events,
+        "governance": governance[:MAX_EVIDENCE],
         "claim_boundary": "Observed skill effects are temporal/ecological associations, not causal proof.",
     }
 
@@ -552,15 +585,39 @@ def _skill_evidence_sentence(skill_evidence: dict[str, Any] | None) -> str:
         return ""
     summary = skill_evidence.get("summary", {}) or {}
     aggregates = list(skill_evidence.get("aggregates", []) or [])
-    if not aggregates:
+    governance = list(skill_evidence.get("governance", []) or [])
+    inherited = [row for row in governance if row.get("status") == "inherited"]
+    if inherited:
+        top = inherited[0]
+        return (
+            f"Skill inheritance gate preserved {top.get('skill_name', 'a skill')} with confidence "
+            f"{top.get('confidence', 0)} after {top.get('positive_evidence_count', 0)} positive observations; "
+            f"the association remains observational."
+        )
+    suppressed = [
+        row
+        for row in governance
+        if str(row.get("status", "")).startswith("suppressed") or row.get("status") == "observed_only"
+    ]
+    if suppressed:
+        top = suppressed[0]
+        return (
+            f"A {top.get('skill_name', 'skill')} hint was evaluated but not inherited because "
+            f"{str(top.get('reason', top.get('reason_code', 'evidence was weak'))).rstrip('.')}."
+        )
+    supported = [
+        row
+        for row in aggregates
+        if int(row.get("helped_possible_count", 0) or 0) >= 2
+        and int(row.get("harmed_possible_count", 0) or 0) == 0
+    ]
+    if not supported:
         return ""
-    top = aggregates[0]
+    top = supported[0]
     uses = int(summary.get("observed_uses", 0) or 0)
     carriers = int(summary.get("carriers", 0) or 0)
-    if uses <= 0:
-        return f"Inherited behavior evidence: {top.get('skill_name', 'a skill')} is carried by {carriers} visible descendants, but no use has been observed yet."
     return (
-        f"Inherited behavior evidence: {top.get('skill_name', 'a skill')} was observed in use; "
+        f"Skill evidence supports {top.get('skill_name', 'a skill')} as a heritable hint candidate; "
         f"lineage totals show {carriers} carriers, {uses} uses, "
         f"{summary.get('helped_possible', 0)} helped possible, {summary.get('harmed_possible', 0)} harmed possible, "
         f"and {summary.get('unclear', 0)} unclear."

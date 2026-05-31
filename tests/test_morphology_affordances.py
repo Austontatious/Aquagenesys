@@ -154,7 +154,7 @@ def test_state_exposes_morphology_without_frame_bloat() -> None:
     sim.run(4)
     state = sim.state()
     frame = sim.frame_state()
-    assert state["schema"] == "aquagenesys.state.v12"
+    assert state["schema"] == "aquagenesys.state.v13"
     assert state["morphology"]["schema"] == "aquagenesys.morphology.v1"
     assert state["morphology"]["organisms"]
     first = state["morphology"]["organisms"][0]

@@ -292,7 +292,7 @@ def test_state_exposes_bounded_behavior_rationale_without_frame_bloat() -> None:
     sim.run(4)
     state = sim.state()
     frame = sim.frame_state()
-    assert state["schema"] == "aquagenesys.state.v12"
+    assert state["schema"] == "aquagenesys.state.v13"
     assert state["behavior"]["schema"] == "aquagenesys.behavior.v1"
     assert state["behavior"]["organisms"]
     first = state["behavior"]["organisms"][0]

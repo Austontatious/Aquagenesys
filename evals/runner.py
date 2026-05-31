@@ -75,7 +75,7 @@ def run_eval() -> int:
             archive_every_ticks=int(input_payload.get("archive_every_ticks", 0)),
         )
         sim = AquagenesysSimulation(config)
-        if scenario in {"safe_inheritance", "bad_teaching", "archive_trace"} and len(sim.fish) >= 2:
+        if scenario in {"safe_inheritance", "bad_teaching", "archive_trace", "skill_governance"} and len(sim.fish) >= 2:
             sim.rng = _LowRandom(config.seed)
             parent = sim.fish[0]
             mate = sim.fish[1]
@@ -97,6 +97,50 @@ def run_eval() -> int:
 
                 parent.memory.record(1, Action("forage", 1, 0, 0.5, "habit", "eval"), outcome="fed", delta_energy=1.0, delta_health=0.0)
                 parent.memory.record(2, Action("forage", 1, 0, 0.5, "habit", "eval"), outcome="fed", delta_energy=1.0, delta_health=0.0)
+            if scenario == "skill_governance":
+                from aquagenesys.agents import BehaviorInstructionGenome, TaughtSkill
+
+                parent.instruction_genome = BehaviorInstructionGenome(
+                    risk_posture="cautious",
+                    forage_strategy="safe_food",
+                    energy_strategy="conserve",
+                    teaching_style="opportunistic",
+                    allowed_skill_slots=3,
+                ).normalized()
+                skill = TaughtSkill(
+                    skill_id="eval-safe-forage",
+                    source_parent_id=parent.fish_id,
+                    source_lineage_id=parent.lineage_id,
+                    created_tick=0,
+                    generation_created=parent.generation,
+                    skill_type="forage",
+                    trigger="low_energy",
+                    action_bias="safe_food",
+                    confidence=0.82,
+                    energy_cost_bias=-0.05,
+                    risk_bias=-0.05,
+                    memory_bias="prefer_energy_gain",
+                    ttl_generations=4,
+                    decay=0.10,
+                    rationale_tag="eval_supported_skill",
+                )
+                parent.taught_skills = [skill]
+                for tick in (1, 2):
+                    sim.tick = tick
+                    sim._record_skill_evidence(
+                        event_type="skill_outcome_observed",
+                        fish=parent,
+                        skill=skill,
+                        source="self",
+                        parent_id=parent.fish_id,
+                        context="hunger_or_food_opportunity",
+                        action="forage",
+                        immediate_outcome="fed",
+                        outcome_score=0.25,
+                        evidence_strength="moderate",
+                        effect_label="helped_possible",
+                        detail="Eval setup records repeated positive skill observations.",
+                    )
             if scenario == "bad_teaching":
                 sim.propose_offspring_instruction_patch(
                     parent.fish_id,
@@ -140,7 +184,7 @@ def run_eval() -> int:
             failures.append("missing observatory dashboard")
         if expected.get("requires_genealogy") and state.get("genealogy", {}).get("schema") != "aquagenesys.genealogy.v1":
             failures.append("missing genealogy explorer state")
-        if expected.get("requires_lineage_story") and state.get("lineage_story", {}).get("schema") != "aquagenesys.lineage_story.v4":
+        if expected.get("requires_lineage_story") and state.get("lineage_story", {}).get("schema") != "aquagenesys.lineage_story.v5":
             failures.append("missing lineage story state")
         if expected.get("requires_morphology") and state.get("morphology", {}).get("schema") != "aquagenesys.morphology.v1":
             failures.append("missing morphology state")
@@ -173,12 +217,21 @@ def run_eval() -> int:
             failures.append("instruction patch rejection below threshold")
         if instruction.get("inheritance_events", 0) < int(expected.get("min_instruction_inheritance_events", 0)):
             failures.append("instruction inheritance below threshold")
+        if instruction.get("skill_governance_events", 0) < int(expected.get("min_skill_governance_events", 0)):
+            failures.append("skill governance events below threshold")
+        if instruction.get("skills_inherited_by_evidence", 0) < int(expected.get("min_skills_inherited_by_evidence", 0)):
+            failures.append("evidence-supported inherited skills below threshold")
+        if instruction.get("skills_suppressed_by_evidence", 0) < int(expected.get("min_skills_suppressed_by_evidence", 0)):
+            failures.append("evidence-suppressed skills below threshold")
         if instruction.get("policy_variants_alive", 0) < int(expected.get("min_policy_variants_alive", 0)):
             failures.append("policy variants below threshold")
         if expected.get("instruction_inheritance_enabled") is not None and instruction.get("inheritance_enabled") != expected.get("instruction_inheritance_enabled"):
             failures.append("instruction inheritance flag mismatch")
         if expected.get("model_teaching_enabled") is not None and instruction.get("model_teaching_enabled") != expected.get("model_teaching_enabled"):
             failures.append("model teaching flag mismatch")
+        skill_summary = state["telemetry"].get("skill_evidence", {}).get("summary", {})
+        if expected.get("requires_skill_governance_visible") and not skill_summary.get("governance_status_counts"):
+            failures.append("missing skill governance summary")
         if failures:
             status = "fail"
         case_results.append(
@@ -196,6 +249,10 @@ def run_eval() -> int:
                 "instruction_patches_accepted": instruction.get("patches_accepted", 0),
                 "instruction_patches_rejected": instruction.get("patches_rejected", 0),
                 "instruction_inheritance_events": instruction.get("inheritance_events", 0),
+                "skill_governance_events": instruction.get("skill_governance_events", 0),
+                "skills_inherited_by_evidence": instruction.get("skills_inherited_by_evidence", 0),
+                "skills_suppressed_by_evidence": instruction.get("skills_suppressed_by_evidence", 0),
+                "skill_governance_status_counts": skill_summary.get("governance_status_counts", {}),
                 "policy_variants_alive": instruction.get("policy_variants_alive", 0),
                 "dashboard_schema": state.get("dashboard", {}).get("schema", ""),
                 "genealogy_schema": state.get("genealogy", {}).get("schema", ""),
@@ -217,7 +274,7 @@ def run_eval() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Aquagenesys v0.4.1 eval harness")
+    parser = argparse.ArgumentParser(description="Aquagenesys v0.4.2 eval harness")
     parser.add_argument("--check", action="store_true", help="validate eval scaffolding only")
     args = parser.parse_args(argv)
     if args.check:

@@ -1,13 +1,13 @@
 {
-  "name": "v036-bad-teaching-remains-biological",
+  "name": "v042-evidence-governed-skill-inheritance",
   "input": {
-    "scenario": "bad_teaching",
-    "seed": 353,
+    "scenario": "skill_governance",
+    "seed": 421,
     "width": 34,
     "height": 22,
     "initial_population": 6,
     "max_population": 32,
-    "ticks": 80,
+    "ticks": 30,
     "deliberation_enabled": false
   },
   "expected": {
@@ -17,10 +17,15 @@
     "min_population": 1,
     "requires_decisions": true,
     "requires_dashboard": true,
+    "requires_genealogy": true,
+    "requires_lineage_story": true,
     "requires_narrator": true,
+    "requires_skill_governance_visible": true,
     "model_calls": 0,
     "min_instruction_patches_accepted": 1,
     "min_instruction_inheritance_events": 1,
+    "min_skill_governance_events": 1,
+    "min_skills_inherited_by_evidence": 1,
     "instruction_inheritance_enabled": true,
     "model_teaching_enabled": false
   }

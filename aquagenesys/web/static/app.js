@@ -402,17 +402,45 @@ function updateSkillEvidence(evidence) {
   const summaryNode = document.getElementById("skillEvidenceSummary");
   if (!summaryNode) return;
   const summary = evidence.summary || {};
+  const inheritedHints = Number(summary.inherited_skill_hints || 0);
+  const suppressedHints = Number(summary.suppressed_skill_hints || 0);
   summaryNode.textContent =
     evidence.headline ||
-    (summary.observed_uses
+    (inheritedHints || suppressedHints
+      ? `${inheritedHints} hints inherited through evidence gates; ${suppressedHints} suppressed. ${summary.observed_uses || 0} uses observed.`
+      : summary.observed_uses
       ? `${summary.observed_uses} uses observed; ${summary.helped_possible || 0} helped possible, ${summary.harmed_possible || 0} harmed possible, ${summary.unclear || 0} unclear.`
       : summary.carriers
         ? `${summary.carriers} visible descendants carry inherited skills; no use observed yet.`
         : "No inherited behavior evidence observed yet.");
   fillList("skillEvidenceList", evidence.aggregates || [], (item) => [
     `${labelize(item.skill_name || item.skill_type || "skill")} L${item.lineage_id ?? "-"}`,
-    `${item.carriers_count ?? 0} carriers / ${item.uses_count ?? 0} uses / ${item.helped_possible_count ?? 0} help possible / ${item.harmed_possible_count ?? 0} harm possible / ${item.unclear_count ?? 0} unclear (${labelize(item.evidence_strength || "weak")})`,
+    `${labelize(item.latest_governance_status || "observed")} conf ${Number(item.governance_confidence || 0).toFixed(2)} / ${item.carriers_count ?? 0} carriers / ${item.uses_count ?? 0} uses / ${item.helped_possible_count ?? 0} help possible / ${item.harmed_possible_count ?? 0} harm possible`,
   ]);
+}
+
+function summarizeSkillInheritance(fish) {
+  const decisions = fish.skill_inheritance || [];
+  if (!decisions.length) {
+    const skillCount = (fish.taught_skills || []).length || fish.instruction?.skill_count || 0;
+    return skillCount ? "carried skills; no gate record in selected payload" : "no inherited skill hints";
+  }
+  const inherited = decisions.filter((item) => item.status === "inherited");
+  const suppressed = decisions.filter((item) => String(item.status || "").startsWith("suppressed") || item.status === "observed_only");
+  const bits = [];
+  if (inherited.length) {
+    const top = inherited[0];
+    bits.push(
+      `inherited ${labelize(top.skill_name || top.skill_type || "skill")} conf ${Number(top.confidence || 0).toFixed(2)} (${top.positive_evidence_count || 0}/${top.evidence_count || 0} evidence)`,
+    );
+  }
+  if (suppressed.length) {
+    const top = suppressed[0];
+    bits.push(
+      `suppressed ${labelize(top.skill_name || top.skill_type || "skill")}: ${labelize(top.reason_code || top.status || "weak evidence")}`,
+    );
+  }
+  return bits.join("; ") || "observational evidence only; no heritable hint passed the gate";
 }
 
 function fillList(id, items, render) {
@@ -1154,6 +1182,7 @@ function updateInspector() {
     `${instruction.risk_posture || "-"} / ${String(instruction.forage_strategy || "-").replaceAll("_", "-")} / ${String(instruction.energy_strategy || "-").replaceAll("_", "-")}`;
   document.getElementById("fishTeaching").textContent =
     `${String(instruction.teaching_style || "-").replaceAll("_", "-")} skills ${instruction.skill_count ?? (fish.taught_skills || []).length ?? 0} acc ${instruction.accepted_patches ?? fish.instruction_lineage?.accepted_patch_ids?.length ?? 0} rej ${instruction.rejected_patches ?? fish.instruction_lineage?.rejected_patch_ids?.length ?? 0}`;
+  document.getElementById("fishSkillInheritance").textContent = summarizeSkillInheritance(fullFish);
   document.getElementById("fishDecision").textContent = `${fish.decision.source}: ${fish.decision.kind}`;
   document.getElementById("fishBehavior").textContent =
     `${labelize(behavior.current_action || fish.decision.kind || "drift")}: ${behavior.action_reason || fish.decision.reason || "no rationale recorded"}`;
