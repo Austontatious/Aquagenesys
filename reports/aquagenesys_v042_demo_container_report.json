@@ -32,7 +32,8 @@
       "AQUAGENESYS_MODEL_TEACHING_ENABLED": "false",
       "AQUAGENESYS_PUBLIC_DEMO": "true",
       "AQUAGENESYS_LLM_BASE_URL": "http://host.docker.internal:8008/v1",
-      "AQUAGENESYS_LLM_MODEL": "Lexi"
+      "AQUAGENESYS_LLM_MODEL": "Lexi",
+      "AQUAGENESYS_LLM_TIMEOUT_SECONDS": "30.0"
     }
   },
   "lexi_vllm_route": {
@@ -59,8 +60,13 @@
       "passed": true,
       "api_state_deliberation_enabled": true,
       "lexi_route": "passed",
-      "model_call_result": "attempted_but_timed_out",
-      "api_probe_latency_seconds": "approximately 6-13 while Lexi calls timed out"
+      "model_call_result": "passed after timeout was raised to 30 seconds",
+      "timeout_seconds": 30.0,
+      "observed_model_calls": 3,
+      "observed_model_successes": 3,
+      "observed_model_failures": 0,
+      "observed_pending_calls": 0,
+      "frame_probe_latency_seconds": "under approximately 2 seconds in observed poll"
     },
     "page_shell": "passed",
     "logs_tail": "normal uvicorn startup and successful API requests",

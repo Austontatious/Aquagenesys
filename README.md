@@ -106,6 +106,7 @@ scripts/run_demo_container.sh --deliberation
 ```
 
 This changes only the container launch mode. It still binds Aquagenesys to localhost, keeps model teaching disabled, and does not expose port `8008`.
+The demo container gives Lexi up to 30 seconds per bounded deliberation call.
 
 Useful commands:
 

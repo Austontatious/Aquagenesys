@@ -74,6 +74,7 @@ scripts/run_demo_container.sh --deliberation
 ```
 
 That sets `AQUAGENESYS_DELIBERATION_ENABLED=true` while keeping model teaching disabled and keeping port `8008` internal-only.
+The demo container timeout for Lexi/vLLM deliberation is `AQUAGENESYS_LLM_TIMEOUT_SECONDS=30.0`.
 
 Lexi/vLLM remains configured only for later controlled testing:
 
@@ -166,8 +167,8 @@ If `8782` is occupied, `scripts/run_demo_container.sh` chooses the next free por
 - `/api/control` public-demo restriction: passed.
 - Logs: showed normal Uvicorn startup and successful API requests.
 - Restart repeatability: `docker compose down`, `docker compose up -d`, and `/api/frame` passed after restart.
-- Optional deliberation restart: passed; `/api/state` reported `deliberation_enabled=true`, the container-to-host Lexi route was reachable, and model calls were attempted.
-- Optional deliberation caveat: Lexi calls timed out in the observed run, and API probes took roughly 6-13 seconds during those timeouts. Keep no-deliberation as the public default unless that latency is acceptable.
+- Optional deliberation restart: passed; `/api/frame` reported `deliberation_enabled=true`, the container-to-host Lexi route was reachable, and model calls succeeded after the timeout was raised to 30 seconds.
+- Optional deliberation validation: after restart with `AQUAGENESYS_LLM_TIMEOUT_SECONDS=30.0`, telemetry reached model calls `3`, successes `3`, failures `0`, pending `0`, and frame probes stayed under roughly 2 seconds.
 - Container remains running on `127.0.0.1:8782` after validation.
 
 Browser automation smoke was not run because Playwright is not installed in this environment.
